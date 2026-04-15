@@ -268,6 +268,39 @@ def tail_logs() -> None:
         pass
 
 
+def run_backend_tests() -> None:
+    if not _check_venv():
+        return
+    env = _venv_env()
+    pytest_bin = UV_VENV / "bin" / "pytest"
+    if not pytest_bin.exists():
+        print("  pytest not installed — installing test deps...")
+        subprocess.run(
+            ["uv", "pip", "install", "pytest", "httpx"],
+            cwd=BACKEND,
+            env=env,
+            check=False,
+        )
+    print("Running backend tests...\n")
+    r = subprocess.run(
+        [str(UV_VENV / "bin" / "python"), "-m", "pytest", "-v", "--tb=short"],
+        cwd=BACKEND,
+        env=env,
+        check=False,
+    )
+    print()
+    print("═" * 50)
+    if r.returncode == 0:
+        print("  ✓ ALL TESTS PASSED")
+    else:
+        print(f"  ✗ TESTS FAILED (exit code {r.returncode})")
+    print("═" * 50)
+    try:
+        input("\nPress Enter to return to menu (Ctrl-C to quit)... ")
+    except (EOFError, KeyboardInterrupt):
+        print()
+
+
 def install_backend_deps() -> None:
     if not _check_venv_silent():
         print(f"Creating uv venv at {UV_VENV}...")
@@ -301,6 +334,7 @@ MENU = [
     ("Restart all",                     restart_all),
     ("Status",                          show_status),
     ("Tail logs (Ctrl-C returns)",      tail_logs),
+    ("Run backend tests (pytest)",      run_backend_tests),
     ("Install backend deps (uv)",       install_backend_deps),
     ("Install frontend deps (npm)",     install_frontend_deps),
 ]
