@@ -1,0 +1,54 @@
+import { api } from './client';
+
+export type ItemStatus = 'pending' | 'in_progress' | 'done' | 'reviewed';
+
+export interface Item {
+  id: number;
+  project_id: number;
+  payload: Record<string, unknown>;
+  status: ItemStatus;
+  created_at: string;
+}
+
+export interface Annotation {
+  id: number;
+  item_id: number;
+  annotator_id: number;
+  value: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ItemDetail extends Item {
+  annotation: Annotation | null;
+}
+
+export async function bulkUpload(projectId: number, items: { payload: Record<string, unknown> }[]) {
+  const { data } = await api.post<{ created: number }>(
+    `/projects/${projectId}/items/bulk`,
+    { items },
+  );
+  return data;
+}
+
+export async function listItems(projectId: number, limit = 200, offset = 0) {
+  const { data } = await api.get<{ total: number; items: Item[] }>(
+    `/projects/${projectId}/items`,
+    { params: { limit, offset } },
+  );
+  return data;
+}
+
+export async function getItem(id: number) {
+  const { data } = await api.get<ItemDetail>(`/items/${id}`);
+  return data;
+}
+
+export async function saveAnnotation(itemId: number, value: Record<string, unknown>) {
+  const { data } = await api.put<Annotation>(`/items/${itemId}/annotation`, { value });
+  return data;
+}
+
+export function exportUrl(projectId: number, format: 'json' | 'jsonl' | 'csv') {
+  return `/projects/${projectId}/export?format=${format}`;
+}
