@@ -48,6 +48,16 @@ def get_annotation(project_id: int, item_id: int, annotator_id: int) -> Annotati
     return AnnotationRead.model_validate(d) if d else None
 
 
+def _status_for(project_type: str | None, value: dict) -> str:
+    """For pose projects, 'done' requires all 17 keypoints labeled (v>0)."""
+    if project_type == "pose_detection":
+        kps = value.get("keypoints") or []
+        if len(kps) == 17 and all(isinstance(k, list) and len(k) >= 3 and k[2] > 0 for k in kps):
+            return ItemStatus.done.value
+        return ItemStatus.in_progress.value
+    return ItemStatus.done.value
+
+
 def upsert_annotation(item: dict, annotator_id: int, data: AnnotationUpsert) -> AnnotationRead:
     pid = item["project_id"]
     existing = storage.load_annotation(pid, item["id"], annotator_id)
@@ -66,7 +76,8 @@ def upsert_annotation(item: dict, annotator_id: int, data: AnnotationUpsert) -> 
             "updated_at": now,
         }
     storage.save_annotation(pid, record)
-    item["status"] = ItemStatus.done.value
+    project = storage.load_project(pid)
+    item["status"] = _status_for(project.get("type") if project else None, data.value)
     storage.save_item(item)
     return AnnotationRead.model_validate(record)
 

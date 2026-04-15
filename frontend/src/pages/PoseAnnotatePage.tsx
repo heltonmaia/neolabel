@@ -5,7 +5,7 @@ import { getProject } from '@/api/projects';
 import { getItem, listItems, saveAnnotation } from '@/api/items';
 import { FILES_BASE } from '@/lib/env';
 import BabyAvatar from '@/components/BabyAvatar';
-import { COCO_KEYPOINTS, type KeypointValue } from '@/lib/keypoints';
+import { COCO_KEYPOINTS, SKELETON, type KeypointValue } from '@/lib/keypoints';
 
 type KeypointsMap = Record<number, KeypointValue | null>;
 
@@ -39,6 +39,7 @@ export default function PoseAnnotatePage() {
   const [keypoints, setKeypoints] = useState<KeypointsMap>(emptyKeypoints());
   const historyRef = useRef<KeypointsMap[]>([]);
   const imgRef = useRef<HTMLImageElement>(null);
+  const draggingRef = useRef<{ id: number; moved: boolean } | null>(null);
 
   // Keyboard cursor position (as 0-1 percent of image)
   const [cursor, setCursor] = useState<{ x: number; y: number }>({ x: 0.5, y: 0.5 });
@@ -93,11 +94,11 @@ export default function PoseAnnotatePage() {
     else if (placed < 16) setCurrentKp(placed + 1);
   }
 
-  function placeAt(xNat: number, yNat: number) {
+  function placeAt(xNat: number, yNat: number, visibility: 1 | 2 = 2) {
     pushHistory();
     const nextMap: KeypointsMap = {
       ...keypoints,
-      [currentKp]: [Math.round(xNat), Math.round(yNat), 2],
+      [currentKp]: [Math.round(xNat), Math.round(yNat), visibility],
     };
     setKeypoints(nextMap);
     save.mutate(nextMap);
@@ -110,21 +111,28 @@ export default function PoseAnnotatePage() {
     const xPct = (e.clientX - rect.left) / rect.width;
     const yPct = (e.clientY - rect.top) / rect.height;
     setCursor({ x: xPct, y: yPct });
-    placeAt(xPct * img.naturalWidth, yPct * img.naturalHeight);
+    const visibility = e.button === 2 || e.ctrlKey ? 1 : 2;
+    placeAt(xPct * img.naturalWidth, yPct * img.naturalHeight, visibility);
   }
 
-  function placeAtCursor() {
+  function handleContextMenu(e: React.MouseEvent<HTMLImageElement>) {
+    e.preventDefault();
+    const img = e.currentTarget;
+    const rect = img.getBoundingClientRect();
+    const xPct = (e.clientX - rect.left) / rect.width;
+    const yPct = (e.clientY - rect.top) / rect.height;
+    setCursor({ x: xPct, y: yPct });
+    placeAt(xPct * img.naturalWidth, yPct * img.naturalHeight, 1);
+  }
+
+  function placeAtCursor(visibility: 1 | 2 = 2) {
     const img = imgRef.current;
     if (!img) return;
-    placeAt(cursor.x * img.naturalWidth, cursor.y * img.naturalHeight);
+    placeAt(cursor.x * img.naturalWidth, cursor.y * img.naturalHeight, visibility);
   }
 
   function markOccluded() {
-    pushHistory();
-    const nextMap: KeypointsMap = { ...keypoints, [currentKp]: [0, 0, 1] };
-    setKeypoints(nextMap);
-    save.mutate(nextMap);
-    if (currentKp < 16) setCurrentKp(currentKp + 1);
+    placeAtCursor(1);
   }
 
   function clearCurrent() {
@@ -224,36 +232,107 @@ export default function PoseAnnotatePage() {
                 ref={imgRef}
                 src={fullUrl}
                 onClick={handleImageClick}
+                onContextMenu={handleContextMenu}
                 onMouseMove={() => keyboardMode && setKeyboardMode(false)}
                 className="max-w-full max-h-[80vh] cursor-crosshair select-none"
                 draggable={false}
                 alt="frame"
               />
-              {/* Render existing keypoints overlay */}
+              {/* Render skeleton + keypoints overlay */}
               {imgRef.current && (
                 <svg
-                  className="absolute pointer-events-none"
+                  className="absolute"
                   style={{
                     left: imgRef.current.offsetLeft,
                     top: imgRef.current.offsetTop,
                     width: imgRef.current.clientWidth,
                     height: imgRef.current.clientHeight,
+                    pointerEvents: 'none',
                   }}
                   viewBox={`0 0 ${imgRef.current.naturalWidth} ${imgRef.current.naturalHeight}`}
                   preserveAspectRatio="none"
                 >
+                  {/* Skeleton lines (only between placed endpoints) */}
+                  {SKELETON.map(([a, b], i) => {
+                    const va = keypoints[a];
+                    const vb = keypoints[b];
+                    if (!va || !vb || va[2] === 0 || vb[2] === 0) return null;
+                    const dashed = va[2] === 1 || vb[2] === 1;
+                    const sw = Math.max(2, imgRef.current!.naturalWidth / 400);
+                    return (
+                      <line
+                        key={i}
+                        x1={va[0]} y1={va[1]} x2={vb[0]} y2={vb[1]}
+                        stroke="#22d3ee"
+                        strokeWidth={sw}
+                        strokeOpacity={0.85}
+                        strokeDasharray={dashed ? `${sw * 2} ${sw * 1.5}` : undefined}
+                      />
+                    );
+                  })}
                   {COCO_KEYPOINTS.map((kp) => {
                     const v = keypoints[kp.id];
-                    if (!v || v[2] !== 2) return null;
+                    if (!v || v[2] === 0) return null;
                     const isCurrent = kp.id === currentKp;
+                    const isOccluded = v[2] === 1;
+                    const r = Math.max(6, imgRef.current!.naturalWidth / 120);
+                    const sw = Math.max(2, imgRef.current!.naturalWidth / 400);
+
+                    function onDown(e: React.PointerEvent<SVGGElement>) {
+                      if (e.button !== 0) return;
+                      e.stopPropagation();
+                      (e.target as Element).setPointerCapture(e.pointerId);
+                      pushHistory();
+                      draggingRef.current = { id: kp.id, moved: false };
+                      setCurrentKp(kp.id);
+                    }
+                    function onMove(e: React.PointerEvent<SVGGElement>) {
+                      const drag = draggingRef.current;
+                      const img = imgRef.current;
+                      if (!drag || drag.id !== kp.id || !img) return;
+                      const rect = img.getBoundingClientRect();
+                      const xNat = ((e.clientX - rect.left) / rect.width) * img.naturalWidth;
+                      const yNat = ((e.clientY - rect.top) / rect.height) * img.naturalHeight;
+                      const clamped: KeypointValue = [
+                        Math.round(Math.max(0, Math.min(img.naturalWidth, xNat))),
+                        Math.round(Math.max(0, Math.min(img.naturalHeight, yNat))),
+                        v[2] as 1 | 2,
+                      ];
+                      drag.moved = true;
+                      setKeypoints((prev) => ({ ...prev, [kp.id]: clamped }));
+                    }
+                    function onUp(e: React.PointerEvent<SVGGElement>) {
+                      const drag = draggingRef.current;
+                      (e.target as Element).releasePointerCapture?.(e.pointerId);
+                      draggingRef.current = null;
+                      if (drag?.moved) {
+                        // read latest state via functional setter, then persist
+                        setKeypoints((latest) => {
+                          save.mutate(latest);
+                          return latest;
+                        });
+                      } else {
+                        historyRef.current.pop(); // no move → drop the pre-push
+                      }
+                    }
+
                     return (
-                      <g key={kp.id}>
+                      <g
+                        key={kp.id}
+                        style={{ pointerEvents: 'auto', cursor: 'grab' }}
+                        onPointerDown={onDown}
+                        onPointerMove={onMove}
+                        onPointerUp={onUp}
+                        onPointerCancel={onUp}
+                      >
                         <circle
                           cx={v[0]} cy={v[1]}
-                          r={Math.max(6, imgRef.current!.naturalWidth / 120)}
-                          fill={isCurrent ? '#ef4444' : '#10b981'}
+                          r={r}
+                          fill={isCurrent ? '#ef4444' : isOccluded ? '#f59e0b' : '#10b981'}
+                          fillOpacity={isOccluded ? 0.55 : 1}
                           stroke="white"
-                          strokeWidth={Math.max(2, imgRef.current!.naturalWidth / 400)}
+                          strokeWidth={sw}
+                          strokeDasharray={isOccluded ? `${sw * 2} ${sw * 1.5}` : undefined}
                         />
                         <text
                           x={v[0]} y={v[1] + Math.max(3, imgRef.current!.naturalWidth / 300)}
@@ -261,6 +340,7 @@ export default function PoseAnnotatePage() {
                           fontSize={Math.max(10, imgRef.current!.naturalWidth / 80)}
                           fontWeight="700"
                           fill="white"
+                          style={{ pointerEvents: 'none', userSelect: 'none' }}
                         >
                           {kp.id + 1}
                         </text>
@@ -316,7 +396,7 @@ export default function PoseAnnotatePage() {
           <div className="grid grid-cols-2 gap-2 text-sm">
             <button onClick={markOccluded}
               className="border rounded px-2 py-1.5 hover:bg-slate-50">
-              Occluded <kbd className="text-xs border rounded px-1 ml-1">O</kbd>
+              Occluded <kbd className="text-xs border rounded px-1 ml-1">right-click</kbd>
             </button>
             <button onClick={undo}
               className="border rounded px-2 py-1.5 hover:bg-slate-50">
@@ -342,8 +422,9 @@ export default function PoseAnnotatePage() {
               <p><kbd className="border rounded px-1">Tab</kbd> / <kbd className="border rounded px-1">N</kbd> next keypoint · <kbd className="border rounded px-1">Shift+Tab</kbd> / <kbd className="border rounded px-1">P</kbd> previous</p>
               <p><kbd className="border rounded px-1">1</kbd>…<kbd className="border rounded px-1">9</kbd> jump to keypoint 1–9</p>
               <p><kbd className="border rounded px-1">[</kbd> / <kbd className="border rounded px-1">]</kbd> previous / next item</p>
-              <p><kbd className="border rounded px-1">O</kbd> mark occluded · <kbd className="border rounded px-1">U</kbd> undo · <kbd className="border rounded px-1">⌫</kbd> clear current · <kbd className="border rounded px-1">C</kbd> clear all</p>
-              <p className="text-slate-500 pt-1 border-t">Click on image with mouse, or use arrows + Enter for keyboard-only.</p>
+              <p><b>Left click</b> / <kbd className="border rounded px-1">Enter</kbd> = visible · <b>Right click</b> / <kbd className="border rounded px-1">O</kbd> = occluded (position still required)</p>
+              <p><kbd className="border rounded px-1">U</kbd> undo · <kbd className="border rounded px-1">⌫</kbd> clear current · <kbd className="border rounded px-1">C</kbd> clear all</p>
+              <p className="text-slate-500 pt-1 border-t">Occluded points appear as dashed orange circles. Use when the keypoint is covered but you can estimate its position.</p>
             </div>
           </details>
         </aside>
