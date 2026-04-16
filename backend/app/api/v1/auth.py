@@ -5,18 +5,10 @@ from fastapi.security import OAuth2PasswordRequestForm
 
 from app.core.deps import CurrentUser
 from app.core.security import create_access_token
-from app.schemas.user import Token, UserCreate, UserRead
+from app.schemas.user import Token, UserRead
 from app.services import user as user_service
 
 router = APIRouter()
-
-
-@router.post("/register", response_model=UserRead, status_code=status.HTTP_201_CREATED)
-def register(data: UserCreate) -> UserRead:
-    if user_service.get_by_username(data.username):
-        raise HTTPException(status.HTTP_409_CONFLICT, "Username already taken")
-    user = user_service.create(data)
-    return UserRead.model_validate(user.model_dump())
 
 
 @router.post("/login", response_model=Token)

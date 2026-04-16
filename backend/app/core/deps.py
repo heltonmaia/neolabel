@@ -27,3 +27,15 @@ def get_current_user(token: Annotated[str, Depends(oauth2_scheme)]) -> UserRecor
 
 
 CurrentUser = Annotated[UserRecord, Depends(get_current_user)]
+
+
+def require_admin(current_user: CurrentUser) -> UserRecord:
+    if current_user.role != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin privileges required",
+        )
+    return current_user
+
+
+AdminUser = Annotated[UserRecord, Depends(require_admin)]

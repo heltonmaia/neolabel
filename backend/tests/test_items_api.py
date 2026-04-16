@@ -1,6 +1,20 @@
 import json
+import struct
 
 import pytest
+
+
+def _tiny_jpeg(width: int, height: int) -> bytes:
+    """Produce a minimal SOI+SOF0+EOI JPEG blob — enough for _jpeg_size()."""
+    sof0 = (
+        b"\xff\xc0"
+        + struct.pack(">H", 11)      # segment length
+        + b"\x08"                    # precision
+        + struct.pack(">H", height)
+        + struct.pack(">H", width)
+        + b"\x01\x01\x11\x00"        # 1 component
+    )
+    return b"\xff\xd8" + sof0 + b"\xff\xd9"
 
 
 @pytest.fixture
@@ -199,6 +213,151 @@ def test_pose_item_stays_in_progress_until_all_17_keypoints(
         f"/api/v1/projects/{project['id']}/items", headers=auth_headers
     ).json()["items"]
     assert items[0]["status"] == "done"
+
+
+def test_export_yolo_zip_contains_dataset(client, auth_headers, project, tmp_path):
+    import io
+    import zipfile
+
+    # Create a minimal JPEG so _jpeg_size returns real dims
+    img_path = tmp_path / "projects" / str(project["id"]) / "frames" / "vid" / "f_000001.jpg"
+    img_path.parent.mkdir(parents=True, exist_ok=True)
+    img_path.write_bytes(_tiny_jpeg(640, 480))
+
+    client.post(
+        f"/api/v1/projects/{project['id']}/items/bulk",
+        json={
+            "items": [
+                {"payload": {"image_url": "/files/projects/"
+                             f"{project['id']}/frames/vid/f_000001.jpg"}}
+            ]
+        },
+        headers=auth_headers,
+    )
+    iid = client.get(
+        f"/api/v1/projects/{project['id']}/items", headers=auth_headers
+    ).json()["items"][0]["id"]
+    full = [[10 + i * 5, 20 + i * 5, 2] for i in range(17)]
+    client.put(
+        f"/api/v1/items/{iid}/annotation",
+        json={"value": {"keypoints": full}},
+        headers=auth_headers,
+    )
+
+    r = client.get(
+        f"/api/v1/projects/{project['id']}/export?format=yolo", headers=auth_headers
+    )
+    assert r.status_code == 200
+    assert r.headers["content-type"] == "application/zip"
+
+    zf = zipfile.ZipFile(io.BytesIO(r.content))
+    names = zf.namelist()
+    assert "data.yaml" in names
+    assert any(n.startswith("images/train/") for n in names)
+    assert any(n.startswith("labels/train/") and n.endswith(".txt") for n in names)
+    label_file = next(n for n in names if n.startswith("labels/train/"))
+    line = zf.read(label_file).decode().strip().split()
+    # class + 4 bbox + 17*3 keypoints = 56 fields
+    assert len(line) == 1 + 4 + 17 * 3
+    assert line[0] == "0"
+
+
+def test_clear_annotation_resets_status(client, auth_headers, project):
+    client.post(
+        f"/api/v1/projects/{project['id']}/items/bulk",
+        json={"items": [{"payload": {"text": "a"}}]},
+        headers=auth_headers,
+    )
+    iid = client.get(
+        f"/api/v1/projects/{project['id']}/items", headers=auth_headers
+    ).json()["items"][0]["id"]
+    full = [[i * 10, i * 10, 2] for i in range(17)]
+    client.put(
+        f"/api/v1/items/{iid}/annotation",
+        json={"value": {"keypoints": full}},
+        headers=auth_headers,
+    )
+    assert client.get(f"/api/v1/items/{iid}", headers=auth_headers).json()["status"] == "done"
+
+    r = client.delete(f"/api/v1/items/{iid}/annotation", headers=auth_headers)
+    assert r.status_code == 204
+
+    detail = client.get(f"/api/v1/items/{iid}", headers=auth_headers).json()
+    assert detail["status"] == "pending"
+    assert detail["annotation"] is None
+
+
+def test_delete_item(client, auth_headers, project):
+    client.post(
+        f"/api/v1/projects/{project['id']}/items/bulk",
+        json={"items": [{"payload": {"text": "a"}}, {"payload": {"text": "b"}}]},
+        headers=auth_headers,
+    )
+    items = client.get(
+        f"/api/v1/projects/{project['id']}/items", headers=auth_headers
+    ).json()["items"]
+    target = items[0]["id"]
+
+    r = client.delete(f"/api/v1/items/{target}", headers=auth_headers)
+    assert r.status_code == 204
+
+    remaining = client.get(
+        f"/api/v1/projects/{project['id']}/items", headers=auth_headers
+    ).json()
+    assert remaining["total"] == 1
+    assert all(i["id"] != target for i in remaining["items"])
+
+
+def test_delete_item_blocked_for_other_user(
+    client, auth_headers, second_user_headers, project
+):
+    client.post(
+        f"/api/v1/projects/{project['id']}/items/bulk",
+        json={"items": [{"payload": {"text": "a"}}]},
+        headers=auth_headers,
+    )
+    iid = client.get(
+        f"/api/v1/projects/{project['id']}/items", headers=auth_headers
+    ).json()["items"][0]["id"]
+
+    r = client.delete(f"/api/v1/items/{iid}", headers=second_user_headers)
+    assert r.status_code == 404
+
+
+def test_delete_annotated_requires_admin(client, auth_headers, admin_headers, project):
+    client.post(
+        f"/api/v1/projects/{project['id']}/items/bulk",
+        json={"items": [{"payload": {"text": "a"}}, {"payload": {"text": "b"}}]},
+        headers=auth_headers,
+    )
+    items = client.get(
+        f"/api/v1/projects/{project['id']}/items", headers=auth_headers
+    ).json()["items"]
+    full = [[i * 10, i * 10, 2] for i in range(17)]
+    client.put(
+        f"/api/v1/items/{items[0]['id']}/annotation",
+        json={"value": {"keypoints": full}},
+        headers=auth_headers,
+    )
+
+    # Annotator is forbidden
+    r = client.post(
+        f"/api/v1/projects/{project['id']}/items/delete-annotated", headers=auth_headers
+    )
+    assert r.status_code == 403
+
+    # Admin can do it
+    r = client.post(
+        f"/api/v1/projects/{project['id']}/items/delete-annotated", headers=admin_headers
+    )
+    assert r.status_code == 200
+    assert r.json() == {"deleted": 1}
+
+    left = client.get(
+        f"/api/v1/projects/{project['id']}/items", headers=auth_headers
+    ).json()
+    assert left["total"] == 1
+    assert left["items"][0]["id"] == items[1]["id"]
 
 
 def test_export_rejects_invalid_format(client, auth_headers, project):

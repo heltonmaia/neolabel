@@ -20,8 +20,9 @@ export interface Project {
   labels: Label[];
 }
 
-export async function listProjects() {
-  const { data } = await api.get<Project[]>('/projects');
+export async function listProjects(ownerId?: number | null) {
+  const params = ownerId != null ? { owner_id: ownerId } : undefined;
+  const { data } = await api.get<Project[]>('/projects', { params });
   return data;
 }
 

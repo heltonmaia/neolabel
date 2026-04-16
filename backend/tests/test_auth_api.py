@@ -1,33 +1,13 @@
-def test_register_creates_user(client):
+def test_register_endpoint_removed(client):
+    # Public registration is disabled — users are provisioned via seed_users.json.
     r = client.post(
         "/api/v1/auth/register",
         json={"username": "alice", "password": "secret123"},
     )
-    assert r.status_code == 201
-    body = r.json()
-    assert body["username"] == "alice"
-    assert "hashed_password" not in body
+    assert r.status_code == 404
 
 
-def test_register_rejects_duplicate(client):
-    client.post("/api/v1/auth/register", json={"username": "alice", "password": "secret123"})
-    r = client.post(
-        "/api/v1/auth/register",
-        json={"username": "alice", "password": "another"},
-    )
-    assert r.status_code == 409
-
-
-def test_register_validates_username(client):
-    r = client.post(
-        "/api/v1/auth/register",
-        json={"username": "ab", "password": "secret123"},  # too short
-    )
-    assert r.status_code == 422
-
-
-def test_login_returns_bearer_token(client):
-    client.post("/api/v1/auth/register", json={"username": "alice", "password": "secret123"})
+def test_login_returns_bearer_token(client, auth_headers):
     r = client.post(
         "/api/v1/auth/login",
         data={"username": "alice", "password": "secret123"},
@@ -38,8 +18,7 @@ def test_login_returns_bearer_token(client):
     assert body["token_type"].lower() == "bearer"
 
 
-def test_login_wrong_password(client):
-    client.post("/api/v1/auth/register", json={"username": "alice", "password": "secret123"})
+def test_login_wrong_password(client, auth_headers):
     r = client.post(
         "/api/v1/auth/login",
         data={"username": "alice", "password": "wrong"},

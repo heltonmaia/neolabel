@@ -18,3 +18,4 @@ build/
 .vscode/
 .run/
 *.egg-info/
+seed_users.json

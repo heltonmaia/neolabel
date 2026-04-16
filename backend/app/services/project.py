@@ -12,6 +12,10 @@ def list_for_owner(owner_id: int) -> list[ProjectRead]:
     return [_hydrate(p) for p in storage.list_projects() if p.get("owner_id") == owner_id]
 
 
+def list_all() -> list[ProjectRead]:
+    return [_hydrate(p) for p in storage.list_projects()]
+
+
 def get(project_id: int) -> ProjectRead | None:
     d = storage.load_project(project_id)
     return _hydrate(d) if d else None

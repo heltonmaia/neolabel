@@ -10,6 +10,7 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
     FRONTEND_URL: str = "http://localhost:5173"
     API_V1_PREFIX: str = "/api/v1"
+    SEED_USERS_FILE: str = "../seed_users.json"
 
 
 settings = Settings()

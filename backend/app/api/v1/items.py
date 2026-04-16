@@ -5,7 +5,7 @@ import json
 from fastapi import APIRouter, HTTPException, Query, status
 from fastapi.responses import Response
 
-from app.core.deps import CurrentUser
+from app.core.deps import AdminUser, CurrentUser
 from app.schemas.item import (
     AnnotationRead,
     AnnotationUpsert,
@@ -19,9 +19,11 @@ from app.services import project as project_service
 router = APIRouter()
 
 
-def _ensure_owner(project_id: int, user_id: int):
+def _ensure_owner(project_id: int, user):
     project = project_service.get(project_id)
-    if not project or project.owner_id != user_id:
+    if not project:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Project not found")
+    if user.role != "admin" and project.owner_id != user.id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Project not found")
     return project
 
@@ -32,7 +34,7 @@ def _ensure_owner(project_id: int, user_id: int):
     tags=["items"],
 )
 def bulk_upload(project_id: int, data: ItemBulkCreate, current_user: CurrentUser) -> dict:
-    _ensure_owner(project_id, current_user.id)
+    _ensure_owner(project_id, current_user)
     count = item_service.bulk_create(project_id, data.items)
     return {"created": count}
 
@@ -44,7 +46,7 @@ def list_items(
     limit: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0),
 ) -> dict:
-    _ensure_owner(project_id, current_user.id)
+    _ensure_owner(project_id, current_user)
     items, total = item_service.list_for_project(project_id, limit, offset)
     return {"total": total, "items": items}
 
@@ -54,7 +56,7 @@ def get_item(item_id: int, current_user: CurrentUser) -> ItemDetail:
     item = item_service.get(item_id)
     if not item:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Item not found")
-    _ensure_owner(item["project_id"], current_user.id)
+    _ensure_owner(item["project_id"], current_user)
     annotation = item_service.get_annotation(item["project_id"], item["id"], current_user.id)
     return ItemDetail(
         id=item["id"],
@@ -66,6 +68,37 @@ def get_item(item_id: int, current_user: CurrentUser) -> ItemDetail:
     )
 
 
+@router.delete(
+    "/items/{item_id}/annotation",
+    status_code=status.HTTP_204_NO_CONTENT,
+    tags=["items"],
+)
+def clear_annotation(item_id: int, current_user: CurrentUser) -> None:
+    item = item_service.get(item_id)
+    if not item:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Item not found")
+    _ensure_owner(item["project_id"], current_user)
+    item_service.clear_annotation(item_id)
+
+
+@router.delete("/items/{item_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["items"])
+def delete_item(item_id: int, current_user: CurrentUser) -> None:
+    item = item_service.get(item_id)
+    if not item:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Item not found")
+    _ensure_owner(item["project_id"], current_user)
+    item_service.delete(item_id)
+
+
+@router.post("/projects/{project_id}/items/delete-annotated", tags=["items"])
+def delete_annotated_items(project_id: int, current_user: AdminUser) -> dict:
+    # Admin-only: bulk destructive operation
+    if not project_service.get(project_id):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Project not found")
+    count = item_service.delete_annotated(project_id)
+    return {"deleted": count}
+
+
 @router.put("/items/{item_id}/annotation", response_model=AnnotationRead, tags=["items"])
 def upsert_annotation(
     item_id: int, data: AnnotationUpsert, current_user: CurrentUser
@@ -73,7 +106,7 @@ def upsert_annotation(
     item = item_service.get(item_id)
     if not item:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Item not found")
-    _ensure_owner(item["project_id"], current_user.id)
+    _ensure_owner(item["project_id"], current_user)
     return item_service.upsert_annotation(item, current_user.id, data)
 
 
@@ -81,9 +114,20 @@ def upsert_annotation(
 def export_project(
     project_id: int,
     current_user: CurrentUser,
-    format: str = Query("json", pattern="^(json|jsonl|csv)$"),
+    format: str = Query("json", pattern="^(json|jsonl|csv|yolo)$"),
 ) -> Response:
-    _ensure_owner(project_id, current_user.id)
+    _ensure_owner(project_id, current_user)
+
+    if format == "yolo":
+        data = item_service.export_yolo(project_id)
+        return Response(
+            content=data,
+            media_type="application/zip",
+            headers={
+                "Content-Disposition": f'attachment; filename="project_{project_id}_yolo.zip"'
+            },
+        )
+
     rows = item_service.export_project(project_id)
 
     if format == "json":

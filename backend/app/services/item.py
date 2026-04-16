@@ -1,6 +1,10 @@
+import io
+import zipfile
 from datetime import datetime, timezone
+from pathlib import Path
 
 from app.core import storage
+from app.core.config import settings
 from app.schemas.item import (
     AnnotationRead,
     AnnotationUpsert,
@@ -48,6 +52,32 @@ def get_annotation(project_id: int, item_id: int, annotator_id: int) -> Annotati
     return AnnotationRead.model_validate(d) if d else None
 
 
+def delete(item_id: int) -> bool:
+    item = storage.find_item(item_id)
+    if not item:
+        return False
+    return storage.delete_item(item["project_id"], item["id"])
+
+
+def clear_annotation(item_id: int) -> bool:
+    item = storage.find_item(item_id)
+    if not item:
+        return False
+    storage.delete_annotations_for_item(item["project_id"], item["id"])
+    item["status"] = ItemStatus.pending.value
+    storage.save_item(item)
+    return True
+
+
+def delete_annotated(project_id: int) -> int:
+    count = 0
+    for item in storage.list_items(project_id):
+        if item.get("status") in (ItemStatus.done.value, ItemStatus.reviewed.value):
+            if storage.delete_item(project_id, item["id"]):
+                count += 1
+    return count
+
+
 def _status_for(project_type: str | None, value: dict) -> str:
     """For pose projects, 'done' requires all 17 keypoints labeled (v>0)."""
     if project_type == "pose_detection":
@@ -80,6 +110,118 @@ def upsert_annotation(item: dict, annotator_id: int, data: AnnotationUpsert) -> 
     item["status"] = _status_for(project.get("type") if project else None, data.value)
     storage.save_item(item)
     return AnnotationRead.model_validate(record)
+
+
+def _jpeg_size(path: Path) -> tuple[int, int] | None:
+    """Read JPEG width/height from SOF marker — avoids a Pillow dependency."""
+    try:
+        with open(path, "rb") as f:
+            if f.read(2) != b"\xff\xd8":
+                return None
+            while True:
+                b = f.read(1)
+                while b and b != b"\xff":
+                    b = f.read(1)
+                marker = f.read(1)
+                while marker == b"\xff":
+                    marker = f.read(1)
+                if not marker:
+                    return None
+                if marker[0] in (0xC0, 0xC1, 0xC2, 0xC3):
+                    f.read(3)  # length(2) + precision(1)
+                    h = int.from_bytes(f.read(2), "big")
+                    w = int.from_bytes(f.read(2), "big")
+                    return w, h
+                size = int.from_bytes(f.read(2), "big")
+                f.seek(size - 2, 1)
+    except OSError:
+        return None
+
+
+def export_yolo(project_id: int) -> bytes:
+    """Build a YOLO-pose dataset ZIP (COCO 17-keypoints, Ultralytics format).
+
+    Structure:
+        data.yaml
+        images/train/<stem>.jpg
+        labels/train/<stem>.txt   — `0 cx cy w h  x1 y1 v1 ... x17 y17 v17` (normalized)
+    """
+    items = storage.list_items(project_id)
+    anns = {a["item_id"]: a for a in storage.list_annotations_for_project(project_id)}
+    data_root = Path(settings.DATA_DIR)
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        yaml = (
+            "# YOLO-pose dataset (COCO 17 keypoints)\n"
+            "path: .\n"
+            "train: images/train\n"
+            "val: images/train\n"
+            "kpt_shape: [17, 3]\n"
+            # COCO horizontal-flip index: swaps left<->right joints
+            "flip_idx: [0, 2, 1, 4, 3, 6, 5, 8, 7, 10, 9, 12, 11, 14, 13, 16, 15]\n"
+            "names:\n  0: person\n"
+        )
+        zf.writestr("data.yaml", yaml)
+
+        exported = 0
+        for item in items:
+            ann = anns.get(item["id"])
+            if not ann:
+                continue
+            kps = (ann.get("value") or {}).get("keypoints") or []
+            if len(kps) != 17:
+                continue
+            image_url = (item.get("payload") or {}).get("image_url")
+            if not image_url or not image_url.startswith("/files/"):
+                continue
+            src = data_root / image_url[len("/files/"):]
+            if not src.exists():
+                continue
+            dims = _jpeg_size(src)
+            if not dims:
+                continue
+            w, h = dims
+
+            visible_pts = [(x, y) for x, y, v in kps if v > 0]
+            if not visible_pts:
+                continue
+            xs = [p[0] for p in visible_pts]
+            ys = [p[1] for p in visible_pts]
+            x0, x1 = min(xs), max(xs)
+            y0, y1 = min(ys), max(ys)
+            # pad bbox by 10% on each side
+            pad_x = (x1 - x0) * 0.1 or 5
+            pad_y = (y1 - y0) * 0.1 or 5
+            x0 = max(0, x0 - pad_x)
+            x1 = min(w, x1 + pad_x)
+            y0 = max(0, y0 - pad_y)
+            y1 = min(h, y1 + pad_y)
+            cx = (x0 + x1) / 2 / w
+            cy = (y0 + y1) / 2 / h
+            bw = (x1 - x0) / w
+            bh = (y1 - y0) / h
+
+            kp_str = " ".join(f"{x / w:.6f} {y / h:.6f} {int(v)}" for x, y, v in kps)
+            label_line = f"0 {cx:.6f} {cy:.6f} {bw:.6f} {bh:.6f} {kp_str}\n"
+
+            stem = f"{item['id']:06d}_{src.stem}"
+            zf.write(src, f"images/train/{stem}{src.suffix}")
+            zf.writestr(f"labels/train/{stem}.txt", label_line)
+            exported += 1
+
+        zf.writestr(
+            "README.txt",
+            f"Neo-Label YOLO-pose export\n"
+            f"Project: {project_id}\n"
+            f"Exported: {exported} annotated frames\n"
+            f"Format: Ultralytics YOLO-pose, COCO 17 keypoints\n"
+            f"Train with e.g.:\n"
+            f"  yolo pose train data=data.yaml model=yolo11n-pose.pt epochs=100\n"
+            f"(same yaml works for YOLOv8/v11/v12/v26 pose.)\n",
+        )
+
+    return buf.getvalue()
 
 
 def export_project(project_id: int) -> list[dict]:

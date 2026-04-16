@@ -140,6 +140,31 @@ def find_item(iid: int) -> dict | None:
     return None
 
 
+def delete_item(pid: int, iid: int) -> bool:
+    """Remove item JSON, any per-user annotation files, and the on-disk frame if present."""
+    removed = False
+    f = _items_dir(pid) / f"{iid}.json"
+    item = _read_json(f, None)
+    if f.exists():
+        f.unlink()
+        removed = True
+    # Wipe associated annotations
+    ann_dir = _annotations_dir(pid)
+    for a in ann_dir.glob(f"{iid}__*.json"):
+        a.unlink()
+    # Wipe the frame file if it lives under DATA_DIR
+    if item:
+        url = (item.get("payload") or {}).get("image_url")
+        if url and url.startswith("/files/"):
+            frame = _root() / url[len("/files/"):]
+            try:
+                if frame.is_file() and _root() in frame.parents:
+                    frame.unlink()
+            except OSError:
+                pass
+    return removed
+
+
 def list_items(pid: int) -> list[dict]:
     d = _items_dir(pid)
     items = [_read_json(f, None) for f in d.glob("*.json")]
@@ -166,6 +191,15 @@ def load_annotation(pid: int, iid: int, uid: int) -> dict | None:
 
 def save_annotation(pid: int, annotation: dict) -> None:
     _write_json(_ann_path(pid, annotation["item_id"], annotation["annotator_id"]), annotation)
+
+
+def delete_annotations_for_item(pid: int, iid: int) -> int:
+    d = _annotations_dir(pid)
+    count = 0
+    for a in d.glob(f"{iid}__*.json"):
+        a.unlink()
+        count += 1
+    return count
 
 
 def list_annotations_for_project(pid: int) -> list[dict]:

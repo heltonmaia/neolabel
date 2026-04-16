@@ -2,6 +2,8 @@ import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { createProject, deleteProject, listProjects, ProjectType } from '@/api/projects';
+import { listUsers } from '@/api/users';
+import { me } from '@/api/auth';
 import { useAuth } from '@/stores/auth';
 
 const TYPES: { value: ProjectType; label: string }[] = [
@@ -12,10 +14,30 @@ const TYPES: { value: ProjectType; label: string }[] = [
 export default function ProjectsPage() {
   const qc = useQueryClient();
   const logout = useAuth((s) => s.logout);
-  const { data: projects = [], isLoading } = useQuery({
-    queryKey: ['projects'],
-    queryFn: listProjects,
+
+  const meQ = useQuery({ queryKey: ['me'], queryFn: me });
+  const isAdmin = meQ.data?.role === 'admin';
+
+  const [ownerFilter, setOwnerFilter] = useState<number | 'all'>('all');
+
+  const usersQ = useQuery({
+    queryKey: ['users'],
+    queryFn: listUsers,
+    enabled: isAdmin,
   });
+
+  const effectiveOwner: number | null = !isAdmin
+    ? null
+    : ownerFilter === 'all'
+      ? null
+      : ownerFilter;
+
+  const { data: projects = [], isLoading } = useQuery({
+    queryKey: ['projects', isAdmin ? effectiveOwner ?? 'all' : 'self'],
+    queryFn: () => listProjects(effectiveOwner ?? undefined),
+  });
+
+  const usersById = new Map((usersQ.data ?? []).map((u) => [u.id, u]));
 
   const [name, setName] = useState('');
   const [type, setType] = useState<ProjectType>('pose_detection');
@@ -35,11 +57,39 @@ export default function ProjectsPage() {
   return (
     <div className="max-w-4xl mx-auto p-6 space-y-6">
       <header className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">Projects</h1>
+        <div>
+          <h1 className="text-2xl font-semibold">Projects</h1>
+          {meQ.data && (
+            <p className="text-sm text-slate-500">
+              Signed in as <span className="font-medium">{meQ.data.username}</span>
+              {isAdmin && <span className="ml-1 px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 text-xs">admin</span>}
+            </p>
+          )}
+        </div>
         <button onClick={logout} className="text-sm text-slate-600 hover:underline">
           Sign out
         </button>
       </header>
+
+      {isAdmin && (
+        <div className="bg-white p-3 rounded-lg shadow flex items-center gap-2">
+          <label className="text-sm text-slate-600">View projects of:</label>
+          <select
+            value={ownerFilter === 'all' ? 'all' : String(ownerFilter)}
+            onChange={(e) =>
+              setOwnerFilter(e.target.value === 'all' ? 'all' : Number(e.target.value))
+            }
+            className="border rounded px-3 py-1.5 text-sm"
+          >
+            <option value="all">All users</option>
+            {(usersQ.data ?? []).map((u) => (
+              <option key={u.id} value={u.id}>
+                {u.username} ({u.role})
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
 
       <form
         onSubmit={(e) => {
@@ -74,20 +124,32 @@ export default function ProjectsPage() {
         <p className="text-slate-500">No projects yet.</p>
       ) : (
         <ul className="space-y-2">
-          {projects.map((p) => (
-            <li key={p.id} className="bg-white p-4 rounded-lg shadow flex justify-between items-center">
-              <Link to={`/projects/${p.id}`} className="flex-1 hover:underline">
-                <p className="font-medium">{p.name}</p>
-                <p className="text-sm text-slate-500">{p.type}</p>
-              </Link>
-              <button
-                onClick={() => deleteMut.mutate(p.id)}
-                className="text-sm text-red-600 hover:underline ml-4"
-              >
-                Delete
-              </button>
-            </li>
-          ))}
+          {projects.map((p) => {
+            const owner = usersById.get(p.owner_id);
+            return (
+              <li key={p.id} className="bg-white p-4 rounded-lg shadow flex justify-between items-center">
+                <Link to={`/projects/${p.id}`} className="flex-1 hover:underline">
+                  <p className="font-medium">{p.name}</p>
+                  <p className="text-sm text-slate-500">
+                    {p.type}
+                    {isAdmin && (
+                      <span className="ml-2 text-xs text-slate-400">
+                        · owner: {owner ? owner.username : `#${p.owner_id}`}
+                      </span>
+                    )}
+                  </p>
+                </Link>
+                {(isAdmin || p.owner_id === meQ.data?.id) && (
+                  <button
+                    onClick={() => deleteMut.mutate(p.id)}
+                    className="text-sm text-red-600 hover:underline ml-4"
+                  >
+                    Delete
+                  </button>
+                )}
+              </li>
+            );
+          })}
         </ul>
       )}
     </div>

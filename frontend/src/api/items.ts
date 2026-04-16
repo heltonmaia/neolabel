@@ -49,6 +49,21 @@ export async function saveAnnotation(itemId: number, value: Record<string, unkno
   return data;
 }
 
+export async function deleteItem(itemId: number) {
+  await api.delete(`/items/${itemId}`);
+}
+
+export async function clearAnnotation(itemId: number) {
+  await api.delete(`/items/${itemId}/annotation`);
+}
+
+export async function deleteAnnotatedItems(projectId: number) {
+  const { data } = await api.post<{ deleted: number }>(
+    `/projects/${projectId}/items/delete-annotated`,
+  );
+  return data;
+}
+
 export function exportUrl(projectId: number, format: 'json' | 'jsonl' | 'csv') {
   return `/projects/${projectId}/export?format=${format}`;
 }

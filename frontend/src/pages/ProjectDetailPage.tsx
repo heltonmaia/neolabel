@@ -1,13 +1,20 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useParams } from 'react-router-dom';
+import { me } from '@/api/auth';
 import {
   createLabel,
   deleteLabel,
   deleteProject,
   getProject,
 } from '@/api/projects';
-import { bulkUpload, listItems } from '@/api/items';
+import {
+  bulkUpload,
+  clearAnnotation,
+  deleteAnnotatedItems,
+  deleteItem,
+  listItems,
+} from '@/api/items';
 import { uploadVideo } from '@/api/videos';
 import { downloadExport } from '@/lib/download';
 import { FILES_BASE } from '@/lib/env';
@@ -17,6 +24,9 @@ export default function ProjectDetailPage() {
   const projectId = Number(id);
   const qc = useQueryClient();
   const navigate = useNavigate();
+
+  const meQ = useQuery({ queryKey: ['me'], queryFn: me });
+  const isAdmin = meQ.data?.role === 'admin';
 
   const projectQ = useQuery({
     queryKey: ['project', projectId],
@@ -33,6 +43,8 @@ export default function ProjectDetailPage() {
   const [bulkText, setBulkText] = useState('');
   const [videoFile, setVideoFile] = useState<File | null>(null);
   const [videoFps, setVideoFps] = useState(5);
+  const [exportOpen, setExportOpen] = useState(false);
+  const [exportFormat, setExportFormat] = useState<'json' | 'jsonl' | 'csv' | 'yolo'>('json');
 
   const addLabel = useMutation({
     mutationFn: () =>
@@ -73,6 +85,21 @@ export default function ProjectDetailPage() {
     },
   });
 
+  const removeItem = useMutation({
+    mutationFn: (itemId: number) => deleteItem(itemId),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['items', projectId] }),
+  });
+
+  const clearItemAnnotation = useMutation({
+    mutationFn: (itemId: number) => clearAnnotation(itemId),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['items', projectId] }),
+  });
+
+  const removeAnnotated = useMutation({
+    mutationFn: () => deleteAnnotatedItems(projectId),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['items', projectId] }),
+  });
+
   const removeProject = useMutation({
     mutationFn: () => deleteProject(projectId),
     onSuccess: () => navigate('/projects'),
@@ -95,31 +122,71 @@ export default function ProjectDetailPage() {
           <h1 className="text-2xl font-semibold">{project.name}</h1>
           <p className="text-sm text-slate-500">{project.type}</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 relative">
           <button
-            onClick={() => downloadExport(projectId, 'json')}
+            onClick={() => setExportOpen((v) => !v)}
             className="text-sm border rounded px-3 py-1.5 hover:bg-slate-100"
           >
-            Export JSON
+            Export ▾
           </button>
-          <button
-            onClick={() => downloadExport(projectId, 'jsonl')}
-            className="text-sm border rounded px-3 py-1.5 hover:bg-slate-100"
-          >
-            JSONL
-          </button>
-          <button
-            onClick={() => downloadExport(projectId, 'csv')}
-            className="text-sm border rounded px-3 py-1.5 hover:bg-slate-100"
-          >
-            CSV
-          </button>
-          <button
-            onClick={() => confirm('Delete project?') && removeProject.mutate()}
-            className="text-sm text-red-600 border border-red-200 rounded px-3 py-1.5 hover:bg-red-50"
-          >
-            Delete
-          </button>
+          {exportOpen && (
+            <div
+              className="absolute right-0 top-full mt-1 z-10 bg-white border rounded-lg shadow-lg p-3 w-64 space-y-2"
+              onMouseLeave={() => setExportOpen(false)}
+            >
+              <p className="text-xs font-medium text-slate-500 uppercase tracking-wide">
+                Format
+              </p>
+              {(
+                [
+                  { v: 'json', label: 'JSON', hint: 'single array' },
+                  { v: 'jsonl', label: 'JSONL', hint: 'one item per line' },
+                  { v: 'csv', label: 'CSV', hint: 'spreadsheet-friendly' },
+                  ...(isPose
+                    ? [{ v: 'yolo', label: 'YOLO-pose (ZIP)', hint: 'Ultralytics, COCO 17 kp' }]
+                    : []),
+                ] as const
+              ).map((opt) => (
+                <label
+                  key={opt.v}
+                  className={`flex items-start gap-2 p-2 rounded cursor-pointer text-sm ${
+                    exportFormat === opt.v ? 'bg-blue-50 ring-1 ring-blue-300' : 'hover:bg-slate-50'
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="export-format"
+                    value={opt.v}
+                    checked={exportFormat === opt.v}
+                    onChange={() => setExportFormat(opt.v)}
+                    className="mt-0.5"
+                  />
+                  <span>
+                    <span className="font-medium">{opt.label}</span>
+                    <span className="block text-xs text-slate-500">{opt.hint}</span>
+                  </span>
+                </label>
+              ))}
+              <button
+                onClick={() => {
+                  downloadExport(projectId, exportFormat);
+                  setExportOpen(false);
+                }}
+                className="w-full bg-blue-600 text-white text-sm rounded px-3 py-1.5 hover:bg-blue-700"
+              >
+                Download
+              </button>
+            </div>
+          )}
+          {isAdmin && (
+            <button
+              onClick={() => confirm('Delete project?') && removeProject.mutate()}
+              className="text-sm text-red-600 border border-red-200 rounded px-3 py-1.5 hover:bg-red-50"
+              title="Admin only"
+            >
+              Delete
+            </button>
+          )}
         </div>
       </header>
 
@@ -299,14 +366,33 @@ export default function ProjectDetailPage() {
               ({itemsQ.data?.total ?? 0})
             </span>
           </h2>
-          {pendingItem && (
-            <Link
-              to={`/projects/${projectId}/annotate/${pendingItem.id}`}
-              className="bg-emerald-600 text-white px-3 py-1.5 rounded text-sm hover:bg-emerald-700"
-            >
-              Start annotating →
-            </Link>
-          )}
+          <div className="flex items-center gap-2">
+            {isAdmin && items.some((i) => i.status === 'done' || i.status === 'reviewed') && (
+              <button
+                onClick={() => {
+                  if (
+                    confirm(
+                      'Delete ALL annotated items (and their frames)? This cannot be undone.',
+                    )
+                  )
+                    removeAnnotated.mutate();
+                }}
+                disabled={removeAnnotated.isPending}
+                className="text-sm text-red-600 border border-red-200 rounded px-3 py-1.5 hover:bg-red-50 disabled:opacity-50"
+                title="Remove every item that has an annotation"
+              >
+                {removeAnnotated.isPending ? 'Deleting…' : 'Delete annotated'}
+              </button>
+            )}
+            {pendingItem && (
+              <Link
+                to={`/projects/${projectId}/annotate/${pendingItem.id}`}
+                className="bg-emerald-600 text-white px-3 py-1.5 rounded text-sm hover:bg-emerald-700"
+              >
+                Start annotating →
+              </Link>
+            )}
+          </div>
         </div>
         {items.length === 0 ? (
           <p className="text-sm text-slate-500">No items yet.</p>
@@ -333,14 +419,76 @@ export default function ProjectDetailPage() {
                   </span>
                 </Link>
                 <span
-                  className={`text-xs px-2 py-0.5 rounded ${
+                  className={`text-xs px-2 py-0.5 rounded capitalize ${
                     i.status === 'done'
                       ? 'bg-emerald-100 text-emerald-700'
-                      : 'bg-slate-100 text-slate-600'
+                      : i.status === 'in_progress'
+                        ? 'bg-amber-100 text-amber-700'
+                        : i.status === 'reviewed'
+                          ? 'bg-blue-100 text-blue-700'
+                          : 'bg-slate-100 text-slate-600'
                   }`}
                 >
-                  {i.status}
+                  {i.status.replace('_', ' ')}
                 </span>
+                {(i.status === 'done' ||
+                  i.status === 'in_progress' ||
+                  i.status === 'reviewed') && (
+                  <button
+                    onClick={(e) => {
+                      e.preventDefault();
+                      if (confirm(`Clear annotation on item ${i.id}?`))
+                        clearItemAnnotation.mutate(i.id);
+                    }}
+                    className="text-slate-400 hover:text-amber-600 p-1"
+                    title="Clear annotation (keep item)"
+                    aria-label="Clear annotation"
+                  >
+                    {/* eraser icon */}
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      width="16"
+                      height="16"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <path d="M20 20H9L3 14a2 2 0 0 1 0-2.8l8.5-8.5a2 2 0 0 1 2.8 0l6 6a2 2 0 0 1 0 2.8L13 20" />
+                      <path d="M18 13 9 22" />
+                    </svg>
+                  </button>
+                )}
+                <button
+                  onClick={(e) => {
+                    e.preventDefault();
+                    if (confirm(`Delete item ${i.id}?`)) removeItem.mutate(i.id);
+                  }}
+                  className="text-slate-400 hover:text-red-600 p-1"
+                  title="Delete this item"
+                  aria-label="Delete item"
+                >
+                  {/* trash icon */}
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <path d="M3 6h18" />
+                    <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
+                    <path d="M10 11v6" />
+                    <path d="M14 11v6" />
+                  </svg>
+                </button>
               </li>
             ))}
           </ul>

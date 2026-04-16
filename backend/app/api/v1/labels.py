@@ -16,7 +16,9 @@ router = APIRouter()
 )
 def create_label(project_id: int, data: LabelCreate, current_user: CurrentUser) -> LabelRead:
     project = project_service.get(project_id)
-    if not project or project.owner_id != current_user.id:
+    if not project:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Project not found")
+    if current_user.role != "admin" and project.owner_id != current_user.id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Project not found")
     label = label_service.create(project_id, data)
     if not label:
@@ -30,6 +32,6 @@ def delete_label(label_id: int, current_user: CurrentUser) -> None:
     if not found:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Label not found")
     project, _ = found
-    if project.get("owner_id") != current_user.id:
+    if current_user.role != "admin" and project.get("owner_id") != current_user.id:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Not your project")
     label_service.delete(label_id)

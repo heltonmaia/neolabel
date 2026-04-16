@@ -4,7 +4,7 @@ Aplicação web para anotação de dados (rotulagem) voltada a datasets de Machi
 
 ## Funcionalidades
 
-- **Autenticação** por usuário/senha (JWT). Usuário padrão criado na primeira execução: `neuromate` / `123456`.
+- **Autenticação** por usuário/senha (JWT) com papéis (`admin`, `annotator`, `reviewer`). Operações destrutivas em lote (deletar projeto, deletar todos anotados) são restritas a admin.
 - **Projetos de anotação** com tipos:
   - **Pose detection** — 17 keypoints no padrão COCO, avatar de bebê interativo como guia, suporte a upload de vídeos e extração de frames via FFmpeg.
   - **Image segmentation** (em desenvolvimento).
@@ -31,7 +31,22 @@ Aplicação web para anotação de dados (rotulagem) voltada a datasets de Machi
 
 ```bash
 cp .env.example .env
+cp seed_users.example.json seed_users.json
+# edite seed_users.json com as credenciais que você quer usar
 ```
+
+O arquivo `seed_users.json` fica **fora do git** (entra no `.gitignore`). Ele é lido na primeira inicialização e cada usuário listado é criado se ainda não existir (não sobrescreve senhas depois). Se você não criar o arquivo, nenhum usuário é criado automaticamente — cadastre pela tela de registro.
+
+Formato:
+
+```json
+[
+  { "username": "admin",       "password": "troque-me", "role": "admin" },
+  { "username": "annotator1",  "password": "troque-me", "role": "annotator" }
+]
+```
+
+Papéis aceitos: `admin`, `annotator`, `reviewer`.
 
 ### Opção 1 — script interativo
 

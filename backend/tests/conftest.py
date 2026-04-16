@@ -24,28 +24,28 @@ def client() -> TestClient:
     return TestClient(app)
 
 
-@pytest.fixture
-def auth_headers(client) -> dict[str, str]:
-    client.post(
-        "/api/v1/auth/register",
-        json={"username": "alice", "password": "secret123"},
-    )
+def _seed_and_login(client, username: str, password: str, role: str = "annotator") -> dict:
+    from app.schemas.user import UserRole
+    from app.services import user as user_service
+
+    user_service.ensure_seed_user(username, password, UserRole(role))
     r = client.post(
         "/api/v1/auth/login",
-        data={"username": "alice", "password": "secret123"},
+        data={"username": username, "password": password},
     )
-    token = r.json()["access_token"]
-    return {"Authorization": f"Bearer {token}"}
+    return {"Authorization": f"Bearer {r.json()['access_token']}"}
+
+
+@pytest.fixture
+def auth_headers(client) -> dict[str, str]:
+    return _seed_and_login(client, "alice", "secret123")
 
 
 @pytest.fixture
 def second_user_headers(client) -> dict[str, str]:
-    client.post(
-        "/api/v1/auth/register",
-        json={"username": "bob", "password": "secret456"},
-    )
-    r = client.post(
-        "/api/v1/auth/login",
-        data={"username": "bob", "password": "secret456"},
-    )
-    return {"Authorization": f"Bearer {r.json()['access_token']}"}
+    return _seed_and_login(client, "bob", "secret456")
+
+
+@pytest.fixture
+def admin_headers(client) -> dict[str, str]:
+    return _seed_and_login(client, "admin", "12345", role="admin")

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useForm } from 'react-hook-form';
-import { Link, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { login } from '@/api/auth';
 import { useAuth } from '@/stores/auth';
 
@@ -8,7 +8,7 @@ interface Form { username: string; password: string }
 
 export default function LoginPage() {
   const { register, handleSubmit } = useForm<Form>({
-    defaultValues: { username: 'neuromate', password: '' },
+    defaultValues: { username: '', password: '' },
   });
   const setToken = useAuth((s) => s.setToken);
   const navigate = useNavigate();
@@ -49,11 +49,8 @@ export default function LoginPage() {
         <button className="w-full bg-blue-600 text-white py-2 rounded hover:bg-blue-700">
           Sign in
         </button>
-        <p className="text-sm text-slate-600">
-          No account? <Link to="/register" className="text-blue-600">Register</Link>
-        </p>
         <p className="text-xs text-slate-400">
-          Default: <code>neuromate</code> / <code>123456</code>
+          Credentials are provisioned by the admin via <code>seed_users.json</code> (see README).
         </p>
       </form>
     </div>
