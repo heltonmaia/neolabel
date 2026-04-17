@@ -2,9 +2,9 @@ import json
 import logging
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 
 from app.api.v1 import api_router
 from app.core.config import settings
@@ -59,7 +59,25 @@ app.include_router(api_router, prefix=settings.API_V1_PREFIX)
 
 _data_dir = Path(settings.DATA_DIR)
 _data_dir.mkdir(parents=True, exist_ok=True)
-app.mount("/files", StaticFiles(directory=_data_dir), name="files")
+
+# Only project-scoped frames and videos are served. Metadata files
+# (users.json, project.json, items/, annotations/) must never leak.
+_ALLOWED_MEDIA_SUBDIRS = frozenset({"frames", "_videos"})
+
+
+@app.get("/files/projects/{project_id}/{subdir}/{path:path}", tags=["files"])
+def serve_media(project_id: int, subdir: str, path: str) -> FileResponse:
+    if subdir not in _ALLOWED_MEDIA_SUBDIRS:
+        raise HTTPException(status.HTTP_404_NOT_FOUND)
+    base = (_data_dir / "projects" / str(project_id) / subdir).resolve()
+    full = (base / path).resolve()
+    try:
+        full.relative_to(base)
+    except ValueError:
+        raise HTTPException(status.HTTP_404_NOT_FOUND)
+    if not full.is_file():
+        raise HTTPException(status.HTTP_404_NOT_FOUND)
+    return FileResponse(full)
 
 
 @app.get("/health", tags=["meta"])
