@@ -42,8 +42,9 @@ echo "==> docker compose build + up"
 compose up --build -d
 
 echo "==> waiting for backend health..."
+HEALTH_PY='import sys,urllib.request; sys.exit(0 if urllib.request.urlopen("http://localhost:8000/health",timeout=2).status==200 else 1)'
 for i in {1..30}; do
-  if compose exec -T backend curl -sf http://localhost:8000/health >/dev/null 2>&1; then
+  if compose exec -T backend python -c "$HEALTH_PY" >/dev/null 2>&1; then
     echo "    backend OK"
     break
   fi
