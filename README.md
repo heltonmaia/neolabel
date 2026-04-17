@@ -51,10 +51,18 @@ cp seed_users.example.json seed_users.json
 # edit seed_users.json with the credentials you want
 ```
 
-`seed_users.json` is **git-ignored**. It is read on first boot and each
-listed user is created if missing (existing passwords are never
-overwritten). If you skip the file, no users are created automatically —
-use the register screen.
+`seed_users.json` is **git-ignored** and is read on every backend
+startup:
+
+- Users listed here are **created** if they don't exist yet.
+- If a listed user already exists, their **password and role are
+  reconciled** to match the file — so editing the password and
+  restarting the backend is the supported way to rotate credentials.
+- Users not listed in the file are left untouched. To remove a user you
+  still need to delete their record from `data/users.json`.
+
+If you skip the file entirely, no users are created automatically — use
+the register screen.
 
 Format:
 
