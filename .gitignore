@@ -21,3 +21,5 @@ build/
 seed_users.json
 *.tsbuildinfo
 frontend/src/**/*.js
+.env.prod
+data-prod/

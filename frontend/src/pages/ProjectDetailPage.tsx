@@ -248,7 +248,7 @@ export default function ProjectDetailPage() {
                   { v: 'jsonl', label: 'JSONL', hint: 'one item per line' },
                   { v: 'csv', label: 'CSV', hint: 'spreadsheet-friendly' },
                   ...(isPose
-                    ? [{ v: 'yolo', label: 'YOLO-pose (ZIP)', hint: 'Ultralytics, COCO 17 kp' }]
+                    ? ([{ v: 'yolo', label: 'YOLO-pose (ZIP)', hint: 'Ultralytics, COCO 17 kp' }] as const)
                     : []),
                 ] as const
               ).map((opt) => (

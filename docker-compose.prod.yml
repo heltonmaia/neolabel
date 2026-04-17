@@ -1,0 +1,31 @@
+services:
+  backend:
+    image: neo-label-backend:prod
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.prod
+    restart: unless-stopped
+    environment:
+      DATA_DIR: /data
+      SECRET_KEY: ${SECRET_KEY:?SECRET_KEY is required}
+      FRONTEND_URL: ${FRONTEND_URL:?FRONTEND_URL is required}
+      ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-60}
+      SEED_USERS_FILE: /seed_users.json
+    volumes:
+      - ${DATA_DIR:-/srv/neo-label/data}:/data
+      - ./seed_users.json:/seed_users.json:ro
+    expose:
+      - "8000"
+
+  frontend:
+    image: neo-label-frontend:prod
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.prod
+      args:
+        VITE_API_URL: /api/v1
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "127.0.0.1:${FRONTEND_PORT:-8080}:80"
