@@ -142,6 +142,8 @@ user does not own returns **404** (to avoid leaking existence), with
 - Config via `pydantic-settings`, driven by `.env`.
 - FFmpeg must be on `PATH` for video upload; the Docker image bundles
   it.
-- Seed users loaded on startup from `SEED_USERS_FILE` (default
-  `seed_users.json`) — each entry is created if missing; existing
-  passwords are never overwritten.
+- Seed users reconciled on every startup from `SEED_USERS_FILE`
+  (default `seed_users.json`) — missing users are created, and each
+  listed user's password and role are updated in place when they differ
+  from the file (so the JSON is authoritative for listed accounts).
+  Users not in the file are left untouched.
