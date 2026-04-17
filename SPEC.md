@@ -1,152 +1,147 @@
 # Neo-Label — Specification
 
-Spec-driven development: this document is the source of truth. Code follows the spec; when reality diverges, update the spec first.
+Source of truth for the product. Code follows the spec; when reality
+diverges, update the spec **before** the code.
 
-## 1. Scope by Phase
+- User-facing overview and setup: **README.md**
+- Repo internals and conventions for contributors: **CLAUDE.md**
 
-### Phase 1 — Foundation (current)
-- Monorepo + docker-compose (backend + frontend; no DB)
-- Backend: FastAPI + JSON-on-disk storage, JWT auth
-- Domain records: User, Project, Label, Item, Annotation
-- API: auth (register/login/me), projects CRUD
-- Frontend: Vite + React + TS + Tailwind + React Query
-- Pages: login, register, projects list/create
+## 1. Roadmap by phase
 
-### Phase 2 — Text classification MVP
-- Item bulk upload (CSV/JSON)
-- Annotation UI for text classification
-- Keyboard shortcuts, auto-save
-- Export JSON/JSONL/CSV
+- ✅ **Phase 1 — Foundation.** Auth + projects CRUD, users, filesystem
+  storage, login/register/projects UI.
+- ✅ **Phase 2 — Text labeling MVP.** Labels, bulk item upload,
+  keyboard-driven annotation UI, exports (JSON/JSONL/CSV).
+- ✅ **Phase 3 — Pose detection.** 17 COCO keypoints, baby-avatar guide,
+  video upload with FFmpeg frame extraction, YOLO-pose ZIP export.
+- ✅ **Phase 4 — Multi-user assignments.** `admin` role, per-user
+  `assigned_to` on items, admin-only video upload with assignee,
+  per-video reassign/delete, visibility filtered by assignment.
+- ⏳ **Phase 5 — Review workflow.** `reviewer` role wiring, Cohen's
+  kappa, progress dashboards.
+- ⏳ **Phase 6 — Images beyond pose.** Image classification, bounding
+  boxes, COCO export.
+- ⏳ **Phase 7 — NER.** Token-level annotation, span labels.
 
-### Phase 3 — Multi-user & review
-- Roles (admin/annotator/reviewer)
-- Item assignment
-- Review workflow
-- Progress metrics, Cohen's kappa
+## 2. Domain model
 
-### Phase 4 — Images
-- Image upload (ZIP)
-- Image classification UI
-- Bounding box UI
-- COCO export
+Enums used across API and storage:
 
-### Phase 5 — NER
-- Token-level annotation UI
-- Span-based labels
+- `UserRole` ∈ {`admin`, `annotator`, `reviewer`}
+- `ProjectType` ∈ {`text_classification`, `pose_detection`,
+  `image_classification`, `bbox`, `ner`}
+- `ItemStatus` ∈ {`pending`, `in_progress`, `done`, `reviewed`}
 
-## 2. Storage (filesystem, no DB)
+Core records:
 
-All state lives on disk under `DATA_DIR` (default `./data`). Per project = one folder.
+| Record | Shape (essential fields) |
+|---|---|
+| User | `id, username, hashed_password, role, created_at` |
+| Project | `id, name, description, type, owner_id, created_at, labels[]` |
+| Label | `id, project_id, name, color, shortcut` |
+| Item | `id, project_id, payload, status, assigned_to, created_at` |
+| Annotation | `id, item_id, annotator_id, value, created_at, updated_at` |
+
+- `item.payload` is free-form JSON:
+  - text items: `{text: str}`
+  - pose frames: `{source_video: str, frame_index: int, image_url: str}`
+- `annotation.value` is label-type-specific JSON (e.g. for pose,
+  `{keypoints: [[x, y, visibility], ...]}`).
+
+## 3. Storage (filesystem, no DB)
+
+All state under `DATA_DIR` (default `./data`). One folder per project.
 
 ```
 data/
-  users.json                            # list[UserRecord]
-  _counters.json                        # id counters per kind
+  users.json                          # list[UserRecord]
+  _counters.json                      # monotonic id counters per kind
   projects/<pid>/
-    project.json                        # {id, name, description, type, owner_id,
-                                        #  created_at, labels: [ {id, name, color, shortcut} ]}
-    items/<iid>.json                    # {id, project_id, payload, status, created_at}
-    annotations/<iid>__<uid>.json       # {id, item_id, annotator_id, value,
-                                        #  created_at, updated_at}
+    project.json                      # project config + labels
+    items/<iid>.json                  # one file per item
+    annotations/<iid>__<uid>.json     # one file per (item, annotator)
+    _videos/<name>.<ext>              # uploaded video originals
+    frames/<name>/frame_<N>.jpg       # frames extracted by FFmpeg
 ```
 
-- IDs: monotonic integers kept in `_counters.json` per kind (users, projects, labels, items, annotations).
-- Atomic writes via `os.replace` on a `.tmp` sibling.
-- Single-process safety only (no file locks across processes yet).
+- IDs are monotonic integers tracked in `_counters.json` per kind
+  (users, projects, labels, items, annotations).
+- Writes are atomic via `os.replace` on a `.tmp` sibling (see
+  `app/core/storage.py`).
+- **Single-process only.** Multiple worker processes require file locks
+  or a migration to a real database — do not scale out without one.
 
-### Types
-- `role` ∈ {admin, annotator, reviewer}
-- `project.type` ∈ {text_classification, image_classification, ner, bbox}
-- `item.status` ∈ {pending, in_progress, done, reviewed}
-- `item.payload`: free-form JSON — `{text: str}` for text, `{image_url: str}` for image, etc.
-- `annotation.value`: label-type-specific JSON
+### Schema evolution
 
-## 3. API Contract (Phase 1)
+No migrations. To change a record shape:
 
-Base URL: `/api/v1`
+- Prefer **tolerant reads**: use `dict.get(key, default)` so older files
+  keep working.
+- For incompatible changes, write a one-shot script under
+  `backend/scripts/` that walks `DATA_DIR` and rewrites the JSON.
+- **Record the change in this file first.**
+
+## 4. API contract
+
+Base URL: `/api/v1`. All protected endpoints require
+`Authorization: Bearer <jwt>`. Unauthorized access to a resource the
+user does not own returns **404** (to avoid leaking existence), with
+`projects.py` currently a known 403 exception (tracked to fix).
 
 ### Auth
-- `POST /auth/register` — {email, password} → 201 {id, email, role}
-- `POST /auth/login` — form(username, password) → 200 {access_token, token_type}
-- `GET  /auth/me` — Bearer → 200 User
+- `POST /auth/register` — `{username, password}` → 201 User
+- `POST /auth/login` — form(`username`, `password`) →
+  `{access_token, token_type}`
+- `GET  /auth/me` — current user
+
+### Users (admin-visible directory)
+- `GET /users` — list all users (used by admin to assign videos)
 
 ### Projects
-- `GET    /projects` — list user's projects
-- `POST   /projects` — {name, description, type} → 201 Project
-- `GET    /projects/{id}` — 200 Project (with labels)
+- `GET    /projects` — projects the user can see (owner or
+  has items assigned in)
+- `POST   /projects` — create
+- `GET    /projects/{id}` — project + labels
 - `PATCH  /projects/{id}` — partial update
-- `DELETE /projects/{id}` — 204
+- `DELETE /projects/{id}` — admin or owner
 
 ### Labels
-- `POST   /projects/{id}/labels` — {name, color, shortcut}
+- `POST   /projects/{id}/labels`
 - `DELETE /labels/{id}`
 
-All protected endpoints require `Authorization: Bearer <jwt>`.
+### Items and annotations
+- `POST   /projects/{id}/items/bulk` — owner/admin
+- `GET    /projects/{id}/items?limit&offset&assigned_to` —
+  non-admin non-owner is forced to `assigned_to = self`
+- `GET    /items/{id}` — item + annotation (if any)
+- `PUT    /items/{id}/annotation` — upsert (assignee/admin/owner only)
+- `DELETE /items/{id}/annotation` — clear annotation, keep item
+- `DELETE /items/{id}` — admin/owner only
+- `POST   /projects/{id}/items/delete-annotated` — admin-only bulk
+- `GET    /projects/{id}/export?format=json|jsonl|csv|yolo` —
+  YOLO returns a ZIP of the Ultralytics layout (pose projects)
 
-## 4. Non-Functional
-- OpenAPI at `/docs`
-- CORS allows `FRONTEND_URL`
-- Structured JSON logs
-- Config via env vars (pydantic-settings)
-- Passwords: bcrypt via passlib
-- JWT: HS256, 60 min expiry (configurable)
+### Videos (pose projects)
+- `POST   /projects/{id}/videos` — admin-only; form(`file`, `fps`,
+  `assignee_id`); extracts frames and creates items assigned to that
+  annotator
+- `GET    /projects/{id}/videos` — admin overview (per-video
+  `frames`, `done`, `assigned_to`)
+- `PATCH  /projects/{id}/videos/{source}/assign` — admin-only;
+  reassigns every frame of the video
+- `DELETE /projects/{id}/videos/{source}` — admin-only; deletes
+  items, annotations, frames, and the original file
 
-## 5. Repository Layout
-```
-proj-neo-label/
-├── backend/
-│   ├── app/
-│   │   ├── api/v1/           # routers
-│   │   ├── core/             # config, db, security, deps
-│   │   ├── models/           # SQLAlchemy
-│   │   ├── schemas/          # Pydantic
-│   │   └── main.py
-│   ├── alembic/
-│   ├── tests/
-│   ├── pyproject.toml
-│   └── Dockerfile
-├── frontend/
-│   ├── src/
-│   │   ├── api/              # axios client + endpoints
-│   │   ├── components/ui/    # shadcn
-│   │   ├── features/
-│   │   │   ├── auth/
-│   │   │   └── projects/
-│   │   ├── hooks/
-│   │   ├── lib/
-│   │   ├── pages/
-│   │   ├── stores/           # zustand
-│   │   ├── App.tsx
-│   │   └── main.tsx
-│   ├── package.json
-│   ├── vite.config.ts
-│   └── Dockerfile
-├── docker-compose.yml
-├── .env.example
-├── README.md
-└── SPEC.md
-```
+## 5. Non-functional
 
-## 6. Dev Workflow
-
-### uv environment (shared)
-The project uses a shared uv virtualenv at `/mnt/hd3/uv-common/uv-neo-label`
-with cache at `/mnt/hd3/uv-cache`.
-
-```bash
-export UV_CACHE_DIR=/mnt/hd3/uv-cache
-source /mnt/hd3/uv-common/uv-neo-label/bin/activate
-```
-
-### Run
-1. `cp .env.example .env`
-2. Backend:
-   ```bash
-   cd backend
-   uvicorn app.main:app --reload
-   ```
-3. Frontend: `cd frontend && npm install && npm run dev`
-
-Data is created automatically under `DATA_DIR` on first write.
-
-API at http://localhost:8000/docs · UI at http://localhost:5173
+- OpenAPI at `/docs`.
+- CORS restricted to `FRONTEND_URL` (single origin).
+- Passwords hashed with `bcrypt` directly (not passlib — breaks on
+  bcrypt 4.x). One-way; never logged.
+- JWT HS256 with a configurable expiry (default 60 min).
+- Config via `pydantic-settings`, driven by `.env`.
+- FFmpeg must be on `PATH` for video upload; the Docker image bundles
+  it.
+- Seed users loaded on startup from `SEED_USERS_FILE` (default
+  `seed_users.json`) — each entry is created if missing; existing
+  passwords are never overwritten.
