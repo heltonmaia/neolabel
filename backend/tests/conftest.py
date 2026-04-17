@@ -17,6 +17,15 @@ def _isolated_data_dir(tmp_path, monkeypatch):
     yield tmp_path
 
 
+@pytest.fixture(autouse=True)
+def _disable_rate_limit():
+    from app.core.ratelimit import limiter
+
+    limiter.enabled = False
+    yield
+    limiter.enabled = True
+
+
 @pytest.fixture
 def client() -> TestClient:
     from app.main import app
