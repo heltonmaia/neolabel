@@ -27,6 +27,11 @@ class ItemRead(BaseModel):
     payload: dict[str, Any]
     status: ItemStatus
     created_at: datetime
+    assigned_to: int | None = None
+
+
+class ReassignRequest(BaseModel):
+    assignee_id: int
 
 
 class AnnotationUpsert(BaseModel):

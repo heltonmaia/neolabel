@@ -2,6 +2,7 @@ from fastapi import APIRouter, HTTPException, Query, status
 
 from app.core.deps import AdminUser, CurrentUser
 from app.schemas.project import ProjectCreate, ProjectRead, ProjectUpdate
+from app.services import item as item_service
 from app.services import project as project_service
 
 router = APIRouter()
@@ -11,9 +12,11 @@ def _get_accessible(project_id: int, user) -> ProjectRead:
     project = project_service.get(project_id)
     if not project:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Project not found")
-    if user.role != "admin" and project.owner_id != user.id:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Project not found")
-    return project
+    if user.role == "admin" or project.owner_id == user.id:
+        return project
+    if item_service.user_has_assignment_in_project(project_id, user.id):
+        return project
+    raise HTTPException(status.HTTP_404_NOT_FOUND, "Project not found")
 
 
 @router.get("", response_model=list[ProjectRead])
@@ -25,7 +28,8 @@ def list_projects(
         if owner_id is not None:
             return project_service.list_for_owner(owner_id)
         return project_service.list_all()
-    return project_service.list_for_owner(current_user.id)
+    # Annotator sees projects they own + projects where items are assigned to them.
+    return project_service.list_visible_for_user(current_user.id)
 
 
 @router.post("", response_model=ProjectRead, status_code=status.HTTP_201_CREATED)

@@ -18,7 +18,9 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def bulk_create(project_id: int, items: list[ItemCreate]) -> int:
+def bulk_create(
+    project_id: int, items: list[ItemCreate], assigned_to: int | None = None
+) -> int:
     count = 0
     for i in items:
         iid = storage.next_id("items")
@@ -28,6 +30,7 @@ def bulk_create(project_id: int, items: list[ItemCreate]) -> int:
             "payload": i.payload,
             "status": ItemStatus.pending.value,
             "created_at": _now(),
+            "assigned_to": assigned_to,
         }
         storage.save_item(record)
         count += 1
@@ -35,12 +38,101 @@ def bulk_create(project_id: int, items: list[ItemCreate]) -> int:
 
 
 def list_for_project(
-    project_id: int, limit: int = 100, offset: int = 0
+    project_id: int,
+    limit: int = 100,
+    offset: int = 0,
+    assigned_to: int | None = None,
 ) -> tuple[list[ItemRead], int]:
     all_items = storage.list_items(project_id)
+    if assigned_to is not None:
+        all_items = [i for i in all_items if i.get("assigned_to") == assigned_to]
     total = len(all_items)
     page = all_items[offset : offset + limit]
     return [ItemRead.model_validate(i) for i in page], total
+
+
+def videos_in_project(project_id: int) -> list[dict]:
+    """Group items by source_video to give an admin overview of distribution."""
+    groups: dict[str, dict] = {}
+    for item in storage.list_items(project_id):
+        name = (item.get("payload") or {}).get("source_video")
+        if not name:
+            continue
+        g = groups.setdefault(
+            name,
+            {
+                "source_video": name,
+                "frames": 0,
+                "done": 0,
+                "assigned_to": item.get("assigned_to"),
+            },
+        )
+        g["frames"] += 1
+        if item.get("status") in (ItemStatus.done.value, ItemStatus.reviewed.value):
+            g["done"] += 1
+        # If frames disagree on assignee (manual edits), expose None so admin resolves.
+        if g["assigned_to"] != item.get("assigned_to"):
+            g["assigned_to"] = None
+    return sorted(groups.values(), key=lambda g: g["source_video"])
+
+
+def reassign_video(project_id: int, source_video: str, assignee_id: int) -> int:
+    """Reassign every frame of `source_video` to `assignee_id`. Returns count updated."""
+    count = 0
+    for item in storage.list_items(project_id):
+        if (item.get("payload") or {}).get("source_video") != source_video:
+            continue
+        item["assigned_to"] = assignee_id
+        storage.save_item(item)
+        count += 1
+    return count
+
+
+def delete_video(project_id: int, source_video: str) -> int:
+    """Delete every frame of `source_video` (items + annotations + frame JPGs),
+    plus the original video file and the now-empty frames directory.
+
+    Returns how many items were removed.
+    """
+    import shutil
+
+    count = 0
+    for item in storage.list_items(project_id):
+        if (item.get("payload") or {}).get("source_video") != source_video:
+            continue
+        if storage.delete_item(project_id, item["id"]):
+            count += 1
+
+    pdir = storage.project_dir(project_id)
+    # Remove the frames folder (may still exist if empty)
+    frames_dir = pdir / "frames" / source_video
+    if frames_dir.exists():
+        shutil.rmtree(frames_dir, ignore_errors=True)
+    # Remove the source video file (any extension)
+    videos_dir = pdir / "_videos"
+    if videos_dir.exists():
+        for f in videos_dir.glob(f"{source_video}.*"):
+            try:
+                f.unlink()
+            except OSError:
+                pass
+    return count
+
+
+def user_has_assignment_in_project(project_id: int, user_id: int) -> bool:
+    for item in storage.list_items(project_id):
+        if item.get("assigned_to") == user_id:
+            return True
+    return False
+
+
+def project_ids_assigned_to_user(user_id: int) -> set[int]:
+    """Scan all projects for items assigned to user_id — small-scale OK."""
+    out: set[int] = set()
+    for p in storage.list_projects():
+        if user_has_assignment_in_project(p["id"], user_id):
+            out.add(p["id"])
+    return out
 
 
 def get(item_id: int) -> dict | None:

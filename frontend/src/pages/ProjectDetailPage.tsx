@@ -15,7 +15,8 @@ import {
   deleteItem,
   listItems,
 } from '@/api/items';
-import { uploadVideo } from '@/api/videos';
+import { listUsers } from '@/api/users';
+import { deleteVideo, listVideos, reassignVideo, uploadVideo } from '@/api/videos';
 import { downloadExport } from '@/lib/download';
 import { FILES_BASE } from '@/lib/env';
 
@@ -43,6 +44,7 @@ export default function ProjectDetailPage() {
   const [bulkText, setBulkText] = useState('');
   const [videoFile, setVideoFile] = useState<File | null>(null);
   const [videoFps, setVideoFps] = useState(5);
+  const [videoAssignee, setVideoAssignee] = useState<number | ''>('');
   const [exportOpen, setExportOpen] = useState(false);
   const [exportFormat, setExportFormat] = useState<'json' | 'jsonl' | 'csv' | 'yolo'>('json');
 
@@ -77,11 +79,41 @@ export default function ProjectDetailPage() {
     },
   });
 
+  const usersQ = useQuery({
+    queryKey: ['users'],
+    queryFn: listUsers,
+    enabled: isAdmin,
+  });
+  const videosQ = useQuery({
+    queryKey: ['videos', projectId],
+    queryFn: () => listVideos(projectId),
+    enabled: isAdmin,
+  });
+
   const videoUpload = useMutation({
-    mutationFn: () => uploadVideo(projectId, videoFile!, videoFps),
+    mutationFn: () =>
+      uploadVideo(projectId, videoFile!, videoFps, videoAssignee as number),
     onSuccess: () => {
       setVideoFile(null);
       qc.invalidateQueries({ queryKey: ['items', projectId] });
+      qc.invalidateQueries({ queryKey: ['videos', projectId] });
+    },
+  });
+
+  const reassign = useMutation({
+    mutationFn: (p: { source: string; assigneeId: number }) =>
+      reassignVideo(projectId, p.source, p.assigneeId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['items', projectId] });
+      qc.invalidateQueries({ queryKey: ['videos', projectId] });
+    },
+  });
+
+  const removeVideo = useMutation({
+    mutationFn: (source: string) => deleteVideo(projectId, source),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['items', projectId] });
+      qc.invalidateQueries({ queryKey: ['videos', projectId] });
     },
   });
 
@@ -190,7 +222,8 @@ export default function ProjectDetailPage() {
         </div>
       </header>
 
-      {/* Labels */}
+      {/* Labels — hidden for pose (keypoint schema is fixed, no user labels needed) */}
+      {!isPose && (
       <section className="bg-white p-4 rounded-lg shadow space-y-3">
         <h2 className="font-semibold">Labels</h2>
         <div className="flex flex-wrap gap-2">
@@ -246,11 +279,17 @@ export default function ProjectDetailPage() {
           </button>
         </form>
       </section>
+      )}
 
       {/* Upload */}
       {isPose ? (
+        isAdmin ? (
         <section className="bg-white p-4 rounded-lg shadow space-y-3">
           <h2 className="font-semibold">Upload video</h2>
+          <p className="text-xs text-slate-500">
+            Only admins can upload videos. Choose which annotator will receive the
+            extracted frames — they become that user's assignment.
+          </p>
           <details className="text-sm bg-slate-50 border rounded">
             <summary className="cursor-pointer px-3 py-2 font-medium text-slate-700 hover:bg-slate-100 select-none">
               What is FPS? <span className="text-xs text-slate-500 font-normal">(click to expand)</span>
@@ -318,9 +357,27 @@ export default function ProjectDetailPage() {
             </span>
           </div>
 
+          <div className="flex items-center gap-3 text-sm">
+            <label className="text-slate-600">Assign to</label>
+            <select
+              value={videoAssignee}
+              onChange={(e) =>
+                setVideoAssignee(e.target.value ? Number(e.target.value) : '')
+              }
+              className="border rounded px-2 py-1 text-sm"
+            >
+              <option value="">— pick a user —</option>
+              {(usersQ.data ?? []).map((u) => (
+                <option key={u.id} value={u.id}>
+                  {u.username} ({u.role})
+                </option>
+              ))}
+            </select>
+          </div>
+
           <button
             onClick={() => videoUpload.mutate()}
-            disabled={!videoFile || videoUpload.isPending}
+            disabled={!videoFile || !videoAssignee || videoUpload.isPending}
             className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 disabled:opacity-50"
           >
             {videoUpload.isPending ? 'Extracting…' : 'Upload & extract'}
@@ -336,6 +393,7 @@ export default function ProjectDetailPage() {
             </p>
           )}
         </section>
+        ) : null
       ) : (
         <section className="bg-white p-4 rounded-lg shadow space-y-3">
           <h2 className="font-semibold">Upload items</h2>
@@ -354,6 +412,88 @@ export default function ProjectDetailPage() {
           >
             {upload.isPending ? 'Uploading…' : 'Upload'}
           </button>
+        </section>
+      )}
+
+      {/* Videos (admin oversight of per-video assignments) */}
+      {isAdmin && isPose && (videosQ.data?.length ?? 0) > 0 && (
+        <section className="bg-white p-4 rounded-lg shadow space-y-3">
+          <h2 className="font-semibold">Videos</h2>
+          <p className="text-xs text-slate-500">
+            One row per uploaded video. Reassigning moves every frame of that video
+            to the selected user.
+          </p>
+          <table className="w-full text-sm">
+            <thead className="text-left text-slate-500 text-xs uppercase">
+              <tr>
+                <th className="py-1">Video</th>
+                <th className="py-1">Frames</th>
+                <th className="py-1">Done</th>
+                <th className="py-1">Assigned to</th>
+                <th className="py-1 w-8"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {videosQ.data!.map((v) => (
+                <tr key={v.source_video} className="border-t">
+                  <td className="py-2 font-mono">{v.source_video}</td>
+                  <td className="py-2">{v.frames}</td>
+                  <td className="py-2">{v.done}</td>
+                  <td className="py-2">
+                    <select
+                      value={v.assigned_to ?? ''}
+                      onChange={(e) => {
+                        const uid = Number(e.target.value);
+                        if (uid) reassign.mutate({ source: v.source_video, assigneeId: uid });
+                      }}
+                      className="border rounded px-2 py-1 text-sm"
+                    >
+                      <option value="">— mixed / none —</option>
+                      {(usersQ.data ?? []).map((u) => (
+                        <option key={u.id} value={u.id}>
+                          {u.username}
+                        </option>
+                      ))}
+                    </select>
+                  </td>
+                  <td className="py-2">
+                    <button
+                      onClick={() => {
+                        if (
+                          confirm(
+                            `Delete video "${v.source_video}" and all ${v.frames} frames (and annotations)? This cannot be undone.`,
+                          )
+                        )
+                          removeVideo.mutate(v.source_video);
+                      }}
+                      disabled={removeVideo.isPending}
+                      className="text-slate-400 hover:text-red-600 p-1 disabled:opacity-40"
+                      title="Delete video and all its frames"
+                      aria-label="Delete video"
+                    >
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        width="16"
+                        height="16"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <path d="M3 6h18" />
+                        <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
+                        <path d="M10 11v6" />
+                        <path d="M14 11v6" />
+                      </svg>
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </section>
       )}
 

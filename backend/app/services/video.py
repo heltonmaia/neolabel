@@ -17,10 +17,17 @@ def _safe_name(name: str) -> str:
     return _SAFE.sub("_", stem) or "video"
 
 
-def extract_frames(project_id: int, video_bytes: bytes, filename: str, fps: float) -> dict:
+def extract_frames(
+    project_id: int,
+    video_bytes: bytes,
+    filename: str,
+    fps: float,
+    assignee_id: int | None = None,
+) -> dict:
     """Save video, run ffmpeg to extract frames, create items for each frame.
 
-    Returns {"video": name, "frames": count}.
+    Each frame-item carries `assigned_to = assignee_id` so only that user sees
+    the work. Returns {"video": name, "frames": count}.
     """
     if fps <= 0 or fps > 60:
         raise ValueError("fps must be between 0 and 60")
@@ -64,6 +71,7 @@ def extract_frames(project_id: int, video_bytes: bytes, filename: str, fps: floa
             },
             "status": ItemStatus.pending.value,
             "created_at": created_at,
+            "assigned_to": assignee_id,
         }
         storage.save_item(item)
 

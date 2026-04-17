@@ -8,6 +8,7 @@ export interface Item {
   payload: Record<string, unknown>;
   status: ItemStatus;
   created_at: string;
+  assigned_to: number | null;
 }
 
 export interface Annotation {
