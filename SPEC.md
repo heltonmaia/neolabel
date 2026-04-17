@@ -123,8 +123,10 @@ user does not own returns **404** (to avoid leaking existence), with
 
 ### Videos (pose projects)
 - `POST   /projects/{id}/videos` — admin-only; form(`file`, `fps`,
-  `assignee_id`); extracts frames and creates items assigned to that
-  annotator
+  `assignee_id`, `rotation`); streams the upload to disk in 1 MiB
+  chunks, caps at **500 MiB** (returns 413 beyond that). `rotation`
+  ∈ {0, 90, 180, 270} applies an FFmpeg `transpose` so extracted
+  frames come out upright. Creates items assigned to that annotator.
 - `GET    /projects/{id}/videos` — admin overview (per-video
   `frames`, `done`, `assigned_to`)
 - `PATCH  /projects/{id}/videos/{source}/assign` — admin-only;
@@ -139,6 +141,12 @@ user does not own returns **404** (to avoid leaking existence), with
 - Passwords hashed with `bcrypt` directly (not passlib — breaks on
   bcrypt 4.x). One-way; never logged.
 - JWT HS256 with a configurable expiry (default 60 min).
+- `POST /auth/login` is rate-limited to **5 requests/minute per client
+  IP** (slowapi; IP resolved from `X-Forwarded-For` since the app sits
+  behind nginx).
+- Media endpoint `GET /files/projects/{pid}/{subdir}/{path}` only
+  serves `subdir` ∈ {`frames`, `_videos`}; other files in `DATA_DIR`
+  (users, counters, items, annotations JSON) are **not** web-reachable.
 - Config via `pydantic-settings`, driven by `.env`.
 - FFmpeg must be on `PATH` for video upload; the Docker image bundles
   it.
