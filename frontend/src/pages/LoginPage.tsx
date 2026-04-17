@@ -49,9 +49,6 @@ export default function LoginPage() {
         <button className="w-full bg-blue-600 text-white py-2 rounded hover:bg-blue-700">
           Sign in
         </button>
-        <p className="text-xs text-slate-400">
-          Credentials are provisioned by the admin via <code>seed_users.json</code> (see README).
-        </p>
       </form>
     </div>
   );
