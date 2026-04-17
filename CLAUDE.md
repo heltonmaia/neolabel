@@ -49,11 +49,13 @@ docker-compose.yml       # dev stack (source mounted for hot-reload)
 docker-compose.prod.yml  # prod stack (built images, no source mount)
 deploy.sh                # VPS deploy: pull + rebuild + health-check
 monitor.py               # prod health/status probe
+harden.sh                # one-shot VPS hardening (UFW, fail2ban, unattended-upgrades)
+backup.sh                # nightly tarball of DATA_DIR + secrets (run via root cron)
 ```
 
-Prod-only files (`docker-compose.prod.yml`, `deploy.sh`, `monitor.py`)
-are for the VPS deploy — don't invoke them for local dev. See
-`CLAUDE.local.md` (gitignored, VPS notes) if present.
+Prod-only files (`docker-compose.prod.yml`, `deploy.sh`, `monitor.py`,
+`harden.sh`, `backup.sh`) are for the VPS deploy — don't invoke them
+for local dev. See `CLAUDE.local.md` (gitignored, VPS notes) if present.
 
 Data lives under `DATA_DIR` at runtime; see SPEC §3 for the on-disk shape.
 
@@ -121,6 +123,16 @@ cd backend && VIRTUAL_ENV=/mnt/hd3/uv-common/uv-neo-label \
   existence). `projects.py` currently returns 403 — known exception,
   don't propagate that pattern.
 - All I/O goes through `app/core/storage.py`. Writes are atomic.
+- Media served by `GET /files/projects/{pid}/{subdir}/{path}` in
+  `main.py` — `subdir` is restricted to `{"frames", "_videos"}`. Do
+  **not** expose other JSON/artifacts through this route; they would
+  be unauthenticated. Path traversal is blocked via `Path.resolve()`.
+- `POST /auth/login` is rate-limited (`5/min` per real client IP) via
+  `slowapi`. `core/ratelimit.py` pulls the IP from `X-Forwarded-For`
+  (first hop) because prod runs behind two nginxes.
+- Video upload streams the request body to disk in 1 MiB chunks and
+  enforces `500 MiB` in `services/video.py`. Never `await file.read()`
+  the whole body — that regressed once, OOM'd the container.
 
 ### Frontend
 
