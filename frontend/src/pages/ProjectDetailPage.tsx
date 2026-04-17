@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { me } from '@/api/auth';
@@ -14,11 +14,26 @@ import {
   deleteAnnotatedItems,
   deleteItem,
   listItems,
+  type ItemStatus,
 } from '@/api/items';
 import { listUsers } from '@/api/users';
 import { deleteVideo, listVideos, reassignVideo, uploadVideo } from '@/api/videos';
 import { downloadExport } from '@/lib/download';
 import { FILES_BASE } from '@/lib/env';
+
+function formatBytes(n: number): string {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 ** 2) return `${(n / 1024).toFixed(1)} KB`;
+  if (n < 1024 ** 3) return `${(n / 1024 ** 2).toFixed(1)} MB`;
+  return `${(n / 1024 ** 3).toFixed(2)} GB`;
+}
+
+function formatDuration(s: number): string {
+  if (!isFinite(s) || s < 0) return '—';
+  const m = Math.floor(s / 60);
+  const r = Math.floor(s % 60);
+  return `${m}:${r.toString().padStart(2, '0')}`;
+}
 
 export default function ProjectDetailPage() {
   const { id } = useParams();
@@ -35,7 +50,7 @@ export default function ProjectDetailPage() {
   });
   const itemsQ = useQuery({
     queryKey: ['items', projectId],
-    queryFn: () => listItems(projectId),
+    queryFn: () => listItems(projectId, 500, 0),
   });
 
   const [labelName, setLabelName] = useState('');
@@ -45,8 +60,30 @@ export default function ProjectDetailPage() {
   const [videoFile, setVideoFile] = useState<File | null>(null);
   const [videoFps, setVideoFps] = useState(5);
   const [videoAssignee, setVideoAssignee] = useState<number | ''>('');
+  const [videoDuration, setVideoDuration] = useState<number | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const videoPreviewUrl = useMemo(
+    () => (videoFile ? URL.createObjectURL(videoFile) : null),
+    [videoFile],
+  );
+  useEffect(() => {
+    setVideoDuration(null);
+    return () => {
+      if (videoPreviewUrl) URL.revokeObjectURL(videoPreviewUrl);
+    };
+  }, [videoPreviewUrl]);
   const [exportOpen, setExportOpen] = useState(false);
   const [exportFormat, setExportFormat] = useState<'json' | 'jsonl' | 'csv' | 'yolo'>('json');
+
+  // Videos table filters (admin)
+  const [videoQuery, setVideoQuery] = useState('');
+  const [videoAssigneeFilter, setVideoAssigneeFilter] = useState<number | ''>('');
+
+  // Items filters / view
+  const [statusFilter, setStatusFilter] = useState<'all' | ItemStatus>('all');
+  const [sourceFilter, setSourceFilter] = useState<string>('');
+  const [itemView, setItemView] = useState<'list' | 'grid'>('list');
+  const [itemsVisible, setItemsVisible] = useState(50);
 
   const addLabel = useMutation({
     mutationFn: () =>
@@ -137,12 +174,48 @@ export default function ProjectDetailPage() {
     onSuccess: () => navigate('/projects'),
   });
 
+  const items = itemsQ.data?.items ?? [];
+  const isPose = projectQ.data?.type === 'pose_detection';
+
+  const statusCounts = useMemo(() => {
+    const c: Record<ItemStatus | 'all', number> = {
+      all: items.length,
+      pending: 0,
+      in_progress: 0,
+      done: 0,
+      reviewed: 0,
+    };
+    for (const i of items) c[i.status]++;
+    return c;
+  }, [items]);
+
+  const sourceVideos = useMemo(() => {
+    if (!isPose) return [] as string[];
+    const s = new Set<string>();
+    for (const i of items) {
+      const sv = (i.payload as { source_video?: string }).source_video;
+      if (sv) s.add(sv);
+    }
+    return Array.from(s).sort();
+  }, [items, isPose]);
+
+  const filteredItems = useMemo(() => {
+    return items.filter((i) => {
+      if (statusFilter !== 'all' && i.status !== statusFilter) return false;
+      if (sourceFilter) {
+        const sv = (i.payload as { source_video?: string }).source_video;
+        if (sv !== sourceFilter) return false;
+      }
+      return true;
+    });
+  }, [items, statusFilter, sourceFilter]);
+
   if (projectQ.isLoading) return <p className="p-6">Loading…</p>;
   if (!projectQ.data) return <p className="p-6">Project not found.</p>;
   const project = projectQ.data;
-  const items = itemsQ.data?.items ?? [];
-  const pendingItem = items.find((i) => i.status === 'pending');
-  const isPose = project.type === 'pose_detection';
+
+  const pendingItem = filteredItems.find((i) => i.status === 'pending')
+    ?? items.find((i) => i.status === 'pending');
 
   return (
     <div className="max-w-5xl mx-auto p-6 space-y-6">
@@ -284,15 +357,176 @@ export default function ProjectDetailPage() {
       {/* Upload */}
       {isPose ? (
         isAdmin ? (
-        <section className="bg-white p-4 rounded-lg shadow space-y-3">
-          <h2 className="font-semibold">Upload video</h2>
-          <p className="text-xs text-slate-500">
-            Only admins can upload videos. Choose which annotator will receive the
-            extracted frames — they become that user's assignment.
-          </p>
+        <section className="bg-white p-4 rounded-lg shadow space-y-4">
+          <div>
+            <h2 className="font-semibold">Upload video</h2>
+            <p className="text-xs text-slate-500">
+              Pick a video, choose an FPS, and assign it to one annotator — every
+              extracted frame becomes that user's task.
+            </p>
+          </div>
+
+          {/* Drop zone / preview */}
+          {!videoFile ? (
+            <label
+              onDragOver={(e) => {
+                e.preventDefault();
+                if (!isDragging) setIsDragging(true);
+              }}
+              onDragLeave={() => setIsDragging(false)}
+              onDrop={(e) => {
+                e.preventDefault();
+                setIsDragging(false);
+                const f = e.dataTransfer.files?.[0];
+                if (f && f.type.startsWith('video/')) setVideoFile(f);
+              }}
+              className={`flex flex-col items-center justify-center gap-2 px-6 py-10 border-2 border-dashed rounded-lg cursor-pointer transition-colors ${
+                isDragging
+                  ? 'border-blue-500 bg-blue-50'
+                  : 'border-slate-200 bg-slate-50 hover:bg-slate-100 hover:border-slate-300'
+              }`}
+            >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                width="32"
+                height="32"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.6"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className="text-slate-400"
+              >
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                <polyline points="17 8 12 3 7 8" />
+                <line x1="12" y1="3" x2="12" y2="15" />
+              </svg>
+              <span className="text-sm font-medium text-slate-700">
+                Click to choose or drag a video here
+              </span>
+              <span className="text-xs text-slate-500">
+                MP4, MOV, WebM — any format FFmpeg can read
+              </span>
+              <input
+                type="file"
+                accept="video/*"
+                onChange={(e) => setVideoFile(e.target.files?.[0] ?? null)}
+                className="hidden"
+              />
+            </label>
+          ) : (
+            <div className="flex flex-col sm:flex-row gap-4 p-3 border rounded-lg bg-slate-50">
+              <video
+                src={videoPreviewUrl ?? undefined}
+                controls
+                onLoadedMetadata={(e) =>
+                  setVideoDuration((e.target as HTMLVideoElement).duration)
+                }
+                className="w-full sm:w-56 h-32 object-contain bg-black rounded"
+              />
+              <div className="flex-1 min-w-0 flex flex-col gap-1">
+                <div className="font-medium truncate" title={videoFile.name}>
+                  {videoFile.name}
+                </div>
+                <div className="text-xs text-slate-500 flex gap-3 flex-wrap">
+                  <span>{formatBytes(videoFile.size)}</span>
+                  {videoDuration !== null && <span>{formatDuration(videoDuration)}</span>}
+                  {videoFile.type && <span className="font-mono">{videoFile.type}</span>}
+                </div>
+                <div className="mt-auto flex gap-2">
+                  <label className="text-xs border rounded px-2 py-1 hover:bg-white cursor-pointer">
+                    Change
+                    <input
+                      type="file"
+                      accept="video/*"
+                      onChange={(e) => setVideoFile(e.target.files?.[0] ?? null)}
+                      className="hidden"
+                    />
+                  </label>
+                  <button
+                    onClick={() => setVideoFile(null)}
+                    className="text-xs border rounded px-2 py-1 text-red-600 hover:bg-red-50"
+                  >
+                    Remove
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Settings: FPS + Assign to side by side */}
+          <div className="grid sm:grid-cols-2 gap-4">
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-slate-600 uppercase tracking-wide">
+                FPS
+              </label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="range"
+                  min={0}
+                  max={1}
+                  step={0.01}
+                  value={
+                    (Math.log(videoFps) - Math.log(1 / 60)) /
+                    (Math.log(30) - Math.log(1 / 60))
+                  }
+                  onChange={(e) => {
+                    const t = Number(e.target.value);
+                    const fps = Math.exp(
+                      Math.log(1 / 60) + t * (Math.log(30) - Math.log(1 / 60)),
+                    );
+                    setVideoFps(Math.round(fps * 1000) / 1000);
+                  }}
+                  className="flex-1 accent-blue-600"
+                />
+                <input
+                  type="number"
+                  min={1 / 60}
+                  max={60}
+                  step={0.01}
+                  value={videoFps}
+                  onChange={(e) => setVideoFps(Number(e.target.value))}
+                  className="border rounded px-2 py-1 w-20 text-sm text-right"
+                />
+              </div>
+              <div className="text-xs text-slate-500">
+                {videoFps >= 1
+                  ? `${videoFps.toFixed(videoFps % 1 === 0 ? 0 : 2)} frames/s`
+                  : 1 / videoFps >= 60
+                    ? `1 frame / ${(1 / videoFps / 60).toFixed(1)} min`
+                    : `1 frame / ${(1 / videoFps).toFixed(1)} s`}
+              </div>
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-slate-600 uppercase tracking-wide">
+                Assign to
+              </label>
+              <select
+                value={videoAssignee}
+                onChange={(e) =>
+                  setVideoAssignee(e.target.value ? Number(e.target.value) : '')
+                }
+                className="border rounded px-2 py-1.5 text-sm w-full"
+              >
+                <option value="">— pick an annotator —</option>
+                {(usersQ.data ?? []).map((u) => (
+                  <option key={u.id} value={u.id}>
+                    {u.username} ({u.role})
+                  </option>
+                ))}
+              </select>
+              <div className="text-xs text-slate-500">
+                Every extracted frame goes to this user.
+              </div>
+            </div>
+          </div>
+
           <details className="text-sm bg-slate-50 border rounded">
             <summary className="cursor-pointer px-3 py-2 font-medium text-slate-700 hover:bg-slate-100 select-none">
-              What is FPS? <span className="text-xs text-slate-500 font-normal">(click to expand)</span>
+              What is FPS?{' '}
+              <span className="text-xs text-slate-500 font-normal">(click to expand)</span>
             </summary>
             <div className="px-3 pb-3 space-y-1 text-slate-600">
               <p>
@@ -311,77 +545,61 @@ export default function ProjectDetailPage() {
               </p>
             </div>
           </details>
-          <input
-            type="file"
-            accept="video/*"
-            onChange={(e) => setVideoFile(e.target.files?.[0] ?? null)}
-            className="text-sm block"
-          />
 
-          <div className="flex items-center gap-3 text-sm">
-            <label className="text-slate-600">FPS</label>
-            {/* Log slider: 0 -> 1/60 fps, 1 -> 30 fps */}
-            <input
-              type="range"
-              min={0}
-              max={1}
-              step={0.01}
-              value={
-                (Math.log(videoFps) - Math.log(1 / 60)) /
-                (Math.log(30) - Math.log(1 / 60))
-              }
-              onChange={(e) => {
-                const t = Number(e.target.value);
-                const fps = Math.exp(
-                  Math.log(1 / 60) + t * (Math.log(30) - Math.log(1 / 60)),
-                );
-                setVideoFps(Math.round(fps * 1000) / 1000);
-              }}
-              className="w-40 accent-blue-600"
-            />
-            <input
-              type="number"
-              min={1 / 60}
-              max={60}
-              step={0.01}
-              value={videoFps}
-              onChange={(e) => setVideoFps(Number(e.target.value))}
-              className="border rounded px-2 py-1 w-24 text-sm"
-            />
-            <span className="text-xs text-slate-500">
-              {videoFps >= 1
-                ? `${videoFps.toFixed(videoFps % 1 === 0 ? 0 : 2)} frames/s`
-                : 1 / videoFps >= 60
-                  ? `1 frame / ${(1 / videoFps / 60).toFixed(1)} min`
-                  : `1 frame / ${(1 / videoFps).toFixed(1)} s`}
-            </span>
-          </div>
-
-          <div className="flex items-center gap-3 text-sm">
-            <label className="text-slate-600">Assign to</label>
-            <select
-              value={videoAssignee}
-              onChange={(e) =>
-                setVideoAssignee(e.target.value ? Number(e.target.value) : '')
-              }
-              className="border rounded px-2 py-1 text-sm"
+          <div className="flex items-center justify-between gap-3 flex-wrap pt-2 border-t">
+            <div className="text-xs text-slate-600">
+              {videoFile && videoDuration !== null && videoFps > 0 ? (
+                <>
+                  Will extract ~
+                  <b>{Math.max(1, Math.floor(videoDuration * videoFps))}</b> frames
+                </>
+              ) : (
+                <span className="text-slate-400">
+                  Pick a video and an annotator to enable upload.
+                </span>
+              )}
+            </div>
+            <button
+              onClick={() => videoUpload.mutate()}
+              disabled={!videoFile || !videoAssignee || videoUpload.isPending}
+              className="inline-flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 disabled:opacity-50 text-sm font-medium"
             >
-              <option value="">— pick a user —</option>
-              {(usersQ.data ?? []).map((u) => (
-                <option key={u.id} value={u.id}>
-                  {u.username} ({u.role})
-                </option>
-              ))}
-            </select>
+              {videoUpload.isPending ? (
+                <>
+                  <svg
+                    className="animate-spin"
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                  >
+                    <circle cx="12" cy="12" r="10" stroke="currentColor" strokeOpacity="0.25" strokeWidth="4" />
+                    <path d="M12 2a10 10 0 0 1 10 10" stroke="currentColor" strokeWidth="4" strokeLinecap="round" />
+                  </svg>
+                  Extracting…
+                </>
+              ) : (
+                <>
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                    <polyline points="17 8 12 3 7 8" />
+                    <line x1="12" y1="3" x2="12" y2="15" />
+                  </svg>
+                  Upload &amp; extract
+                </>
+              )}
+            </button>
           </div>
-
-          <button
-            onClick={() => videoUpload.mutate()}
-            disabled={!videoFile || !videoAssignee || videoUpload.isPending}
-            className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 disabled:opacity-50"
-          >
-            {videoUpload.isPending ? 'Extracting…' : 'Upload & extract'}
-          </button>
           {videoUpload.isError && (
             <p className="text-sm text-red-600">
               {(videoUpload.error as any)?.response?.data?.detail ?? 'Upload failed'}
@@ -416,29 +634,94 @@ export default function ProjectDetailPage() {
       )}
 
       {/* Videos (admin oversight of per-video assignments) */}
-      {isAdmin && isPose && (videosQ.data?.length ?? 0) > 0 && (
+      {isAdmin && isPose && (videosQ.data?.length ?? 0) > 0 && (() => {
+        const all = videosQ.data!;
+        const q = videoQuery.trim().toLowerCase();
+        const filtered = all.filter((v) => {
+          if (q && !v.source_video.toLowerCase().includes(q)) return false;
+          if (videoAssigneeFilter !== '' && v.assigned_to !== videoAssigneeFilter) return false;
+          return true;
+        });
+        const totals = filtered.reduce(
+          (acc, v) => ({
+            frames: acc.frames + v.frames,
+            done: acc.done + v.done,
+          }),
+          { frames: 0, done: 0 },
+        );
+        return (
         <section className="bg-white p-4 rounded-lg shadow space-y-3">
-          <h2 className="font-semibold">Videos</h2>
-          <p className="text-xs text-slate-500">
-            One row per uploaded video. Reassigning moves every frame of that video
-            to the selected user.
-          </p>
+          <div className="flex items-center justify-between gap-4 flex-wrap">
+            <div>
+              <h2 className="font-semibold">
+                Videos{' '}
+                <span className="text-sm text-slate-500 font-normal">
+                  ({filtered.length}
+                  {filtered.length !== all.length && ` of ${all.length}`})
+                </span>
+              </h2>
+              <p className="text-xs text-slate-500">
+                Reassigning moves every frame of a video to the selected user.
+              </p>
+            </div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <input
+                type="search"
+                value={videoQuery}
+                onChange={(e) => setVideoQuery(e.target.value)}
+                placeholder="Search video…"
+                className="border rounded px-2 py-1 text-sm"
+              />
+              <select
+                value={videoAssigneeFilter}
+                onChange={(e) =>
+                  setVideoAssigneeFilter(e.target.value ? Number(e.target.value) : '')
+                }
+                className="border rounded px-2 py-1 text-sm"
+              >
+                <option value="">All annotators</option>
+                {(usersQ.data ?? []).map((u) => (
+                  <option key={u.id} value={u.id}>
+                    {u.username}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+          {filtered.length === 0 ? (
+            <p className="text-sm text-slate-500 py-2">No videos match.</p>
+          ) : (
+          <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="text-left text-slate-500 text-xs uppercase">
               <tr>
                 <th className="py-1">Video</th>
-                <th className="py-1">Frames</th>
-                <th className="py-1">Done</th>
+                <th className="py-1 w-24">Frames</th>
+                <th className="py-1 w-56">Progress</th>
                 <th className="py-1">Assigned to</th>
                 <th className="py-1 w-8"></th>
               </tr>
             </thead>
             <tbody>
-              {videosQ.data!.map((v) => (
+              {filtered.map((v) => {
+                const pct = v.frames > 0 ? (v.done / v.frames) * 100 : 0;
+                return (
                 <tr key={v.source_video} className="border-t">
-                  <td className="py-2 font-mono">{v.source_video}</td>
+                  <td className="py-2 font-mono truncate max-w-xs">{v.source_video}</td>
                   <td className="py-2">{v.frames}</td>
-                  <td className="py-2">{v.done}</td>
+                  <td className="py-2">
+                    <div className="flex items-center gap-2">
+                      <div className="flex-1 h-2 bg-slate-100 rounded overflow-hidden">
+                        <div
+                          className="h-full bg-emerald-500"
+                          style={{ width: `${pct}%` }}
+                        />
+                      </div>
+                      <span className="text-xs text-slate-500 tabular-nums whitespace-nowrap">
+                        {v.done}/{v.frames}
+                      </span>
+                    </div>
+                  </td>
                   <td className="py-2">
                     <select
                       value={v.assigned_to ?? ''}
@@ -491,22 +774,41 @@ export default function ProjectDetailPage() {
                     </button>
                   </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
+            <tfoot>
+              <tr className="border-t text-xs text-slate-500">
+                <td className="py-2 font-medium">
+                  {filtered.length} video{filtered.length === 1 ? '' : 's'}
+                </td>
+                <td className="py-2 tabular-nums">{totals.frames}</td>
+                <td className="py-2 tabular-nums">
+                  {totals.done}/{totals.frames}
+                  {totals.frames > 0 &&
+                    ` · ${Math.round((totals.done / totals.frames) * 100)}%`}
+                </td>
+                <td colSpan={2} />
+              </tr>
+            </tfoot>
           </table>
+          </div>
+          )}
         </section>
-      )}
+        );
+      })()}
 
       {/* Items */}
       <section className="bg-white p-4 rounded-lg shadow space-y-3">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-3 flex-wrap">
           <h2 className="font-semibold">
             Items{' '}
             <span className="text-sm text-slate-500 font-normal">
-              ({itemsQ.data?.total ?? 0})
+              ({filteredItems.length}
+              {filteredItems.length !== items.length && ` of ${items.length}`})
             </span>
           </h2>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             {isAdmin && items.some((i) => i.status === 'done' || i.status === 'reviewed') && (
               <button
                 onClick={() => {
@@ -534,11 +836,128 @@ export default function ProjectDetailPage() {
             )}
           </div>
         </div>
+
+        {items.length > 0 && (
+        <div className="flex items-center gap-2 flex-wrap border-b pb-3">
+          {(
+            [
+              ['all', 'All'],
+              ['pending', 'Pending'],
+              ['in_progress', 'In progress'],
+              ['done', 'Done'],
+              ['reviewed', 'Reviewed'],
+            ] as const
+          ).map(([key, label]) => (
+            <button
+              key={key}
+              onClick={() => {
+                setStatusFilter(key);
+                setItemsVisible(50);
+              }}
+              className={`text-xs px-2.5 py-1 rounded-full border ${
+                statusFilter === key
+                  ? 'bg-blue-600 text-white border-blue-600'
+                  : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+              }`}
+            >
+              {label}{' '}
+              <span className={statusFilter === key ? 'opacity-80' : 'text-slate-400'}>
+                {statusCounts[key]}
+              </span>
+            </button>
+          ))}
+          {isPose && sourceVideos.length > 0 && (
+            <select
+              value={sourceFilter}
+              onChange={(e) => {
+                setSourceFilter(e.target.value);
+                setItemsVisible(50);
+              }}
+              className="border rounded px-2 py-1 text-xs ml-auto"
+            >
+              <option value="">All videos</option>
+              {sourceVideos.map((sv) => (
+                <option key={sv} value={sv}>
+                  {sv}
+                </option>
+              ))}
+            </select>
+          )}
+          <div className="inline-flex border rounded overflow-hidden text-xs">
+            <button
+              onClick={() => setItemView('list')}
+              className={`px-2 py-1 ${
+                itemView === 'list' ? 'bg-slate-800 text-white' : 'bg-white text-slate-600'
+              }`}
+              title="List view"
+            >
+              List
+            </button>
+            <button
+              onClick={() => setItemView('grid')}
+              className={`px-2 py-1 border-l ${
+                itemView === 'grid' ? 'bg-slate-800 text-white' : 'bg-white text-slate-600'
+              }`}
+              title="Grid view"
+            >
+              Grid
+            </button>
+          </div>
+        </div>
+        )}
+
         {items.length === 0 ? (
           <p className="text-sm text-slate-500">No items yet.</p>
+        ) : filteredItems.length === 0 ? (
+          <p className="text-sm text-slate-500 py-2">No items match the filter.</p>
+        ) : itemView === 'grid' ? (
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
+            {filteredItems.slice(0, itemsVisible).map((i) => {
+              const imgUrl = (i.payload as { image_url?: string }).image_url;
+              const sv = (i.payload as { source_video?: string }).source_video;
+              const fi = (i.payload as { frame_index?: number }).frame_index;
+              const label = sv ? `${sv} · ${fi}` : `#${i.id}`;
+              return (
+                <Link
+                  key={i.id}
+                  to={`/projects/${projectId}/annotate/${i.id}`}
+                  className="group block relative border rounded overflow-hidden hover:border-blue-400"
+                >
+                  {imgUrl ? (
+                    <img
+                      src={`${FILES_BASE}${imgUrl}`}
+                      className="w-full aspect-square object-cover bg-slate-100"
+                      alt=""
+                      loading="lazy"
+                    />
+                  ) : (
+                    <div className="w-full aspect-square bg-slate-100 flex items-center justify-center text-xs text-slate-400">
+                      no preview
+                    </div>
+                  )}
+                  <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent text-white text-xs px-2 py-1 truncate">
+                    {label}
+                  </div>
+                  <span
+                    className={`absolute top-1 right-1 text-[10px] px-1.5 py-0.5 rounded ${
+                      i.status === 'done'
+                        ? 'bg-emerald-500 text-white'
+                        : i.status === 'in_progress'
+                          ? 'bg-amber-500 text-white'
+                          : i.status === 'reviewed'
+                            ? 'bg-blue-500 text-white'
+                            : 'bg-white/90 text-slate-600'
+                    }`}
+                  >
+                    {i.status.replace('_', ' ')}
+                  </span>
+                </Link>
+              );
+            })}
+          </div>
         ) : (
           <ul className="divide-y">
-            {items.map((i) => (
+            {filteredItems.slice(0, itemsVisible).map((i) => (
               <li key={i.id} className="py-2 flex items-center justify-between gap-4">
                 <Link
                   to={`/projects/${projectId}/annotate/${i.id}`}
@@ -549,6 +968,7 @@ export default function ProjectDetailPage() {
                       src={`${FILES_BASE}${(i.payload as { image_url: string }).image_url}`}
                       className="w-12 h-12 object-cover rounded border"
                       alt=""
+                      loading="lazy"
                     />
                   )}
                   <span className="truncate">
@@ -584,7 +1004,6 @@ export default function ProjectDetailPage() {
                     title="Clear annotation (keep item)"
                     aria-label="Clear annotation"
                   >
-                    {/* eraser icon */}
                     <svg
                       xmlns="http://www.w3.org/2000/svg"
                       width="16"
@@ -610,7 +1029,6 @@ export default function ProjectDetailPage() {
                   title="Delete this item"
                   aria-label="Delete item"
                 >
-                  {/* trash icon */}
                   <svg
                     xmlns="http://www.w3.org/2000/svg"
                     width="16"
@@ -632,6 +1050,17 @@ export default function ProjectDetailPage() {
               </li>
             ))}
           </ul>
+        )}
+
+        {filteredItems.length > itemsVisible && (
+          <div className="flex justify-center pt-2">
+            <button
+              onClick={() => setItemsVisible((v) => v + 50)}
+              className="text-sm border rounded px-4 py-1.5 hover:bg-slate-100"
+            >
+              Load more ({filteredItems.length - itemsVisible} remaining)
+            </button>
+          </div>
         )}
       </section>
     </div>
