@@ -3,6 +3,8 @@
 Web app for labeling data to build Machine Learning datasets. Create projects,
 upload data, annotate with keyboard shortcuts, and export the result.
 
+![Neo-Label sign-in](docs/screenshots/login.png)
+
 > Companion docs — **[SPEC.md](./SPEC.md)** for the product spec (domain
 > model, API, roadmap) and **[CLAUDE.md](./CLAUDE.md)** for contributor
 > conventions and repo layout.
