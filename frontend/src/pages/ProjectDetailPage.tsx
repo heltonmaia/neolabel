@@ -1070,6 +1070,7 @@ export default function ProjectDetailPage() {
                     </svg>
                   </button>
                 )}
+                {isAdmin && (
                 <button
                   onClick={(e) => {
                     e.preventDefault();
@@ -1097,6 +1098,7 @@ export default function ProjectDetailPage() {
                     <path d="M14 11v6" />
                   </svg>
                 </button>
+                )}
               </li>
             ))}
           </ul>
