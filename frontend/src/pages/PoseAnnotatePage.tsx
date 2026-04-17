@@ -289,7 +289,7 @@ export default function PoseAnnotatePage() {
                     function onMove(e: React.PointerEvent<SVGGElement>) {
                       const drag = draggingRef.current;
                       const img = imgRef.current;
-                      if (!drag || drag.id !== kp.id || !img) return;
+                      if (!drag || drag.id !== kp.id || !img || !v) return;
                       const rect = img.getBoundingClientRect();
                       const xNat = ((e.clientX - rect.left) / rect.width) * img.naturalWidth;
                       const yNat = ((e.clientY - rect.top) / rect.height) * img.naturalHeight;
