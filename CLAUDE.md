@@ -44,9 +44,16 @@ frontend/src/
   lib/             # utils (env, download, keypoints)
   App.tsx          # routes  ·  main.tsx = providers (QueryClient, Router)
 
-run.py             # Docker-first interactive dev menu
-docker-compose.yml # dev stack (source mounted for hot-reload)
+run.py                   # Docker-first interactive dev menu
+docker-compose.yml       # dev stack (source mounted for hot-reload)
+docker-compose.prod.yml  # prod stack (built images, no source mount)
+deploy.sh                # VPS deploy: pull + rebuild + health-check
+monitor.py               # prod health/status probe
 ```
+
+Prod-only files (`docker-compose.prod.yml`, `deploy.sh`, `monitor.py`)
+are for the VPS deploy — don't invoke them for local dev. See
+`CLAUDE.local.md` (gitignored, VPS notes) if present.
 
 Data lives under `DATA_DIR` at runtime; see SPEC §3 for the on-disk shape.
 
