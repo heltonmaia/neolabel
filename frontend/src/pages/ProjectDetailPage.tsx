@@ -61,6 +61,7 @@ export default function ProjectDetailPage() {
   const [videoFps, setVideoFps] = useState(5);
   const [videoAssignee, setVideoAssignee] = useState<number | ''>('');
   const [videoDuration, setVideoDuration] = useState<number | null>(null);
+  const [videoRotation, setVideoRotation] = useState<0 | 90 | 180 | 270>(0);
   const [isDragging, setIsDragging] = useState(false);
   const videoPreviewUrl = useMemo(
     () => (videoFile ? URL.createObjectURL(videoFile) : null),
@@ -129,9 +130,10 @@ export default function ProjectDetailPage() {
 
   const videoUpload = useMutation({
     mutationFn: () =>
-      uploadVideo(projectId, videoFile!, videoFps, videoAssignee as number),
+      uploadVideo(projectId, videoFile!, videoFps, videoAssignee as number, videoRotation),
     onSuccess: () => {
       setVideoFile(null);
+      setVideoRotation(0);
       qc.invalidateQueries({ queryKey: ['items', projectId] });
       qc.invalidateQueries({ queryKey: ['videos', projectId] });
     },
@@ -417,14 +419,21 @@ export default function ProjectDetailPage() {
             </label>
           ) : (
             <div className="flex flex-col sm:flex-row gap-4 p-3 border rounded-lg bg-slate-50">
-              <video
-                src={videoPreviewUrl ?? undefined}
-                controls
-                onLoadedMetadata={(e) =>
-                  setVideoDuration((e.target as HTMLVideoElement).duration)
-                }
-                className="w-full sm:w-56 h-32 object-contain bg-black rounded"
-              />
+              <div className="w-full sm:w-56 h-32 bg-black rounded overflow-hidden flex items-center justify-center">
+                <video
+                  src={videoPreviewUrl ?? undefined}
+                  controls
+                  onLoadedMetadata={(e) =>
+                    setVideoDuration((e.target as HTMLVideoElement).duration)
+                  }
+                  style={{
+                    transform: `rotate(${videoRotation}deg)`,
+                    maxWidth: videoRotation % 180 === 0 ? '100%' : '8rem',
+                    maxHeight: videoRotation % 180 === 0 ? '100%' : '14rem',
+                  }}
+                  className="object-contain"
+                />
+              </div>
               <div className="flex-1 min-w-0 flex flex-col gap-1">
                 <div className="font-medium truncate" title={videoFile.name}>
                   {videoFile.name}
@@ -434,18 +443,59 @@ export default function ProjectDetailPage() {
                   {videoDuration !== null && <span>{formatDuration(videoDuration)}</span>}
                   {videoFile.type && <span className="font-mono">{videoFile.type}</span>}
                 </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-slate-600 font-medium">Rotation:</span>
+                  <div className="inline-flex rounded border overflow-hidden text-xs">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setVideoRotation((r) => (((r - 90 + 360) % 360) as 0 | 90 | 180 | 270))
+                      }
+                      className="px-2 py-1 hover:bg-white border-r"
+                      title="Rotate left 90°"
+                    >
+                      ↺
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setVideoRotation((r) => (((r + 90) % 360) as 0 | 90 | 180 | 270))
+                      }
+                      className="px-2 py-1 hover:bg-white border-r"
+                      title="Rotate right 90°"
+                    >
+                      ↻
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setVideoRotation(0)}
+                      disabled={videoRotation === 0}
+                      className="px-2 py-1 hover:bg-white disabled:opacity-40"
+                      title="Reset"
+                    >
+                      Reset
+                    </button>
+                  </div>
+                  <span className="text-xs text-slate-500 tabular-nums">{videoRotation}°</span>
+                </div>
                 <div className="mt-auto flex gap-2">
                   <label className="text-xs border rounded px-2 py-1 hover:bg-white cursor-pointer">
                     Change
                     <input
                       type="file"
                       accept="video/*"
-                      onChange={(e) => setVideoFile(e.target.files?.[0] ?? null)}
+                      onChange={(e) => {
+                        setVideoFile(e.target.files?.[0] ?? null);
+                        setVideoRotation(0);
+                      }}
                       className="hidden"
                     />
                   </label>
                   <button
-                    onClick={() => setVideoFile(null)}
+                    onClick={() => {
+                      setVideoFile(null);
+                      setVideoRotation(0);
+                    }}
                     className="text-xs border rounded px-2 py-1 text-red-600 hover:bg-red-50"
                   >
                     Remove

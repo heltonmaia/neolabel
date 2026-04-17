@@ -35,18 +35,26 @@ async def upload_video(
     file: UploadFile = File(...),
     fps: float = Form(...),
     assignee_id: int = Form(...),
+    rotation: int = Form(0),
 ) -> dict:
     _require_project(project_id)
     _require_user(assignee_id)
-    data = await file.read()
-    if not data:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Empty file")
     try:
         return video_service.extract_frames(
-            project_id, data, file.filename or "video", fps, assignee_id=assignee_id
+            project_id,
+            file.file,
+            file.filename or "video",
+            fps,
+            rotation=rotation,
+            assignee_id=assignee_id,
         )
     except ValueError as e:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
+        code = (
+            status.HTTP_413_REQUEST_ENTITY_TOO_LARGE
+            if "larger than" in str(e).lower()
+            else status.HTTP_400_BAD_REQUEST
+        )
+        raise HTTPException(code, str(e))
     except RuntimeError as e:
         raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, str(e))
 

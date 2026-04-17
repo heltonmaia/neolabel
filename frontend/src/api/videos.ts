@@ -12,11 +12,13 @@ export async function uploadVideo(
   file: File,
   fps: number,
   assigneeId: number,
+  rotation: 0 | 90 | 180 | 270 = 0,
 ) {
   const form = new FormData();
   form.append('file', file);
   form.append('fps', String(fps));
   form.append('assignee_id', String(assigneeId));
+  form.append('rotation', String(rotation));
   const { data } = await api.post<{ video: string; frames: number }>(
     `/projects/${projectId}/videos`,
     form,
