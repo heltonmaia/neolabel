@@ -19,3 +19,5 @@ build/
 .run/
 *.egg-info/
 seed_users.json
+*.tsbuildinfo
+frontend/src/**/*.js

@@ -5,11 +5,13 @@ services:
       DATA_DIR: /data
       SECRET_KEY: ${SECRET_KEY:-dev-secret-change-me}
       FRONTEND_URL: ${FRONTEND_URL:-http://localhost:5173}
+      SEED_USERS_FILE: /seed_users.json
     ports:
       - "${BACKEND_PORT:-8000}:8000"
     volumes:
       - ./backend:/app
       - ./data:/data
+      - ./seed_users.json:/seed_users.json:ro
 
   frontend:
     build: ./frontend
