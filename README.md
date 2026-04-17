@@ -1,92 +1,148 @@
 # Neo-Label
 
-Aplicação web para anotação de dados (rotulagem) voltada a datasets de Machine Learning. Permite criar projetos, fazer upload de dados, anotar com atalhos de teclado e exportar o resultado.
+Web app for labeling data to build Machine Learning datasets. Create projects,
+upload data, annotate with keyboard shortcuts, and export the result.
 
-## Funcionalidades
+## Features
 
-- **Autenticação** por usuário/senha (JWT) com papéis (`admin`, `annotator`, `reviewer`). Operações destrutivas em lote (deletar projeto, deletar todos anotados) são restritas a admin.
-- **Projetos de anotação** com tipos:
-  - **Pose detection** — 17 keypoints no padrão COCO, avatar de bebê interativo como guia, suporte a upload de vídeos e extração de frames via FFmpeg.
-  - **Image segmentation** (em desenvolvimento).
-- **Upload de vídeo** com escolha de FPS (de 1 frame/min até 30 frames/s) para extração automática de frames.
-- **Interface de anotação** com:
-  - Clique no mouse ou modo 100% teclado (setas + Enter/Space).
-  - Atalhos: `Tab`/`N` próximo keypoint, `1`-`9` pular, `O` oculto, `U` desfazer, `[` / `]` item anterior/próximo.
-  - Desfazer (histórico de 50 passos) e limpar ponto/tudo.
-  - Salvamento automático a cada ação.
-- **Exportação** em JSON, JSONL e CSV.
+- **Authentication** by username/password (JWT) with roles (`admin`,
+  `annotator`, `reviewer`). Destructive bulk operations (delete project,
+  delete all annotated items) are admin-only.
+- **Projects** with types:
+  - **Pose detection** — 17 COCO keypoints, interactive baby avatar as a
+    visual guide, video upload with FFmpeg-based frame extraction.
+  - **Image segmentation** (roadmap).
+- **Admin-only video upload** — each upload is assigned to a specific
+  annotator and every extracted frame becomes a task for that user. Admins
+  can reassign a whole video to another user or delete it (removing frames
+  and annotations).
+- **Per-user visibility** — annotators only see projects and items
+  assigned to them; admins see everything.
+- **Scale-ready project page**:
+  - Videos table with search, assignee filter, per-row progress bar and
+    totals.
+  - Items section with status tabs, per-video filter, list/grid view,
+    and client-side pagination.
+- **Annotation UI**:
+  - Mouse or full-keyboard workflow (arrows + Enter/Space).
+  - Shortcuts: `Tab`/`N` next keypoint, `1`–`9` jump, `O` hidden, `U`
+    undo, `[` / `]` previous/next item.
+  - Undo history (50 steps), clear point / clear all.
+  - Auto-save on every action.
+- **Export** in JSON, JSONL, CSV, and **YOLO-pose ZIP** (Ultralytics-ready,
+  COCO 17 keypoints) for pose projects.
 
 ## Stack
 
-- **Backend:** Python 3.12, FastAPI, Pydantic v2, armazenamento em JSON no filesystem (sem banco de dados), JWT + bcrypt, FFmpeg para vídeos.
-- **Frontend:** React 18 + TypeScript, Vite, TailwindCSS, TanStack Query, Zustand, React Router, React Hook Form.
+- **Backend:** Python 3.12, FastAPI, Pydantic v2, filesystem JSON storage
+  (no database), JWT + bcrypt, FFmpeg for videos.
+- **Frontend:** React 18 + TypeScript, Vite, TailwindCSS, TanStack Query,
+  Zustand, React Router, React Hook Form.
 
-## Pré-requisitos
-
-- Python 3.12
-- Node.js 18+
-- FFmpeg (para extração de frames de vídeo)
-
-## Instalação e execução
+## Setup
 
 ```bash
 cp .env.example .env
 cp seed_users.example.json seed_users.json
-# edite seed_users.json com as credenciais que você quer usar
+# edit seed_users.json with the credentials you want
 ```
 
-O arquivo `seed_users.json` fica **fora do git** (entra no `.gitignore`). Ele é lido na primeira inicialização e cada usuário listado é criado se ainda não existir (não sobrescreve senhas depois). Se você não criar o arquivo, nenhum usuário é criado automaticamente — cadastre pela tela de registro.
+`seed_users.json` is **git-ignored**. It is read on first boot and each
+listed user is created if missing (existing passwords are never
+overwritten). If you skip the file, no users are created automatically —
+use the register screen.
 
-Formato:
+Format:
 
 ```json
 [
-  { "username": "admin",       "password": "troque-me", "role": "admin" },
-  { "username": "annotator1",  "password": "troque-me", "role": "annotator" }
+  { "username": "admin",      "password": "change-me", "role": "admin" },
+  { "username": "annotator1", "password": "change-me", "role": "annotator" }
 ]
 ```
 
-Papéis aceitos: `admin`, `annotator`, `reviewer`.
+Accepted roles: `admin`, `annotator`, `reviewer`.
 
-### Opção 1 — script interativo
+## Running
+
+The recommended dev workflow is Docker — it bundles FFmpeg, pins the
+Python/Node versions, and mounts source code for hot-reload.
+
+### Docker (recommended)
+
+```bash
+docker compose up --build -d
+```
+
+Or use the interactive menu, which wraps the same commands:
 
 ```bash
 python run.py
 ```
 
-Menu com opções para iniciar/parar/reiniciar backend e frontend, ver status, logs, e abrir a UI.
+Menu options: up (build + start), down, logs (follow), status, open UI,
+run backend tests.
 
-### Opção 2 — manual
+### Native
+
+Requires Python 3.12, Node 18+, and FFmpeg on `PATH`.
 
 ```bash
 # Backend
 cd backend
 uvicorn app.main:app --reload
 
-# Frontend (em outro terminal)
+# Frontend (separate terminal)
 cd frontend
 npm install
 npm run dev
 ```
 
-### Opção 3 — Docker
+URLs:
 
-```bash
-docker compose up
-```
-
-- API: <http://localhost:8000/docs>
+- API / docs: <http://localhost:8000/docs>
 - UI: <http://localhost:5173>
 
-## Dados
+## Development workflow
 
-Todos os dados ficam em `./data/` (configurável via `DATA_DIR` no `.env`). Cada projeto vira uma subpasta contendo configuração, items, anotações, vídeos enviados e frames extraídos. Não há banco de dados — é seguro fazer backup apenas copiando essa pasta.
+With the Docker dev stack, source code is bind-mounted into both
+containers:
 
-## Variáveis de ambiente
+- **Backend** (`uvicorn --reload`): saving a `.py` reloads the app
+  automatically.
+- **Frontend** (Vite HMR): saving a `.tsx`/`.css` updates the browser
+  instantly.
 
-Veja `.env.example`. Principais:
+Rebuild (`docker compose up --build -d`) is only needed when
+`pyproject.toml`, `package.json`, a `Dockerfile`, or `docker-compose.yml`
+changes.
 
-- `DATA_DIR` — onde salvar os dados (default `./data`).
-- `SECRET_KEY` — chave JWT (troque em produção).
-- `FRONTEND_URL` — origem permitida pelo CORS.
-- `BACKEND_PORT`, `VITE_API_URL` — portas/URLs de dev.
+## Data
+
+All data lives under `./data/` (configurable via `DATA_DIR`). Each project
+is a subfolder with its config, items, annotations, uploaded videos, and
+extracted frames. No database — backup is just copying that folder.
+
+## Environment variables
+
+See `.env.example`. Main ones:
+
+- `DATA_DIR` — where data is stored (default `./data`).
+- `SECRET_KEY` — JWT signing key (change for production).
+- `FRONTEND_URL` — allowed CORS origin.
+- `BACKEND_PORT`, `VITE_API_URL` — dev ports/URLs.
+- `SEED_USERS_FILE` — path to the seed file (set automatically in
+  `docker-compose.yml`).
+
+## Tests
+
+```bash
+# inside the running backend container
+docker compose exec backend pytest
+
+# or, from the interactive menu
+python run.py   # → "Run backend tests"
+```
+
+Each test runs against an isolated `DATA_DIR` via an autouse fixture, so
+the suite never touches local data.
