@@ -1,12 +1,31 @@
 import { api } from '@/api/client';
 
+export interface DownloadProgress {
+  loaded: number;
+  // null when the server doesn't send Content-Length (chunked transfer,
+  // e.g. streaming JSON/JSONL/CSV). Render an indeterminate bar in that case.
+  total: number | null;
+}
+
+export interface DownloadOptions {
+  onProgress?: (p: DownloadProgress) => void;
+  signal?: AbortSignal;
+}
+
 export async function downloadExport(
   projectId: number,
   format: 'json' | 'jsonl' | 'csv' | 'yolo',
+  opts?: DownloadOptions,
 ) {
   const res = await api.get(`/projects/${projectId}/export`, {
     params: { format },
     responseType: 'blob',
+    signal: opts?.signal,
+    onDownloadProgress: (e) => {
+      if (!opts?.onProgress) return;
+      const total = typeof e.total === 'number' && e.total > 0 ? e.total : null;
+      opts.onProgress({ loaded: e.loaded ?? 0, total });
+    },
   });
   const url = URL.createObjectURL(res.data);
   const a = document.createElement('a');

@@ -1,9 +1,5 @@
-import csv
-import io
-import json
-
 from fastapi import APIRouter, HTTPException, Query, status
-from fastapi.responses import Response
+from fastapi.responses import Response, StreamingResponse
 
 from app.core.deps import AdminUser, CurrentUser
 from app.schemas.item import (
@@ -153,44 +149,43 @@ def export_project(
     _require_project_for_owner(project_id, current_user)
 
     if format == "yolo":
-        data = item_service.export_yolo(project_id)
-        return Response(
-            content=data,
+        stream, size = item_service.build_yolo_export(project_id)
+
+        def iter_zip():
+            # Stream from the spooled temp file in 1 MiB chunks, then close it
+            # so the OS reclaims the disk spill promptly.
+            try:
+                while True:
+                    chunk = stream.read(1024 * 1024)
+                    if not chunk:
+                        break
+                    yield chunk
+            finally:
+                stream.close()
+
+        return StreamingResponse(
+            iter_zip(),
             media_type="application/zip",
             headers={
-                "Content-Disposition": f'attachment; filename="project_{project_id}_yolo.zip"'
+                "Content-Disposition": f'attachment; filename="project_{project_id}_yolo.zip"',
+                "Content-Length": str(size),
             },
         )
 
-    rows = item_service.export_project(project_id)
-
     if format == "json":
-        return Response(
-            content=json.dumps(rows, default=str, ensure_ascii=False),
+        return StreamingResponse(
+            item_service.iter_export_json(project_id),
             media_type="application/json",
             headers={"Content-Disposition": f'attachment; filename="project_{project_id}.json"'},
         )
     if format == "jsonl":
-        body = "\n".join(json.dumps(r, default=str, ensure_ascii=False) for r in rows)
-        return Response(
-            content=body,
+        return StreamingResponse(
+            item_service.iter_export_jsonl(project_id),
             media_type="application/x-ndjson",
             headers={"Content-Disposition": f'attachment; filename="project_{project_id}.jsonl"'},
         )
-    buf = io.StringIO()
-    writer = csv.writer(buf)
-    writer.writerow(["id", "payload", "status", "annotation"])
-    for r in rows:
-        writer.writerow(
-            [
-                r["id"],
-                json.dumps(r["payload"], ensure_ascii=False),
-                r["status"],
-                json.dumps(r["annotation"], ensure_ascii=False) if r["annotation"] else "",
-            ]
-        )
-    return Response(
-        content=buf.getvalue(),
+    return StreamingResponse(
+        item_service.iter_export_csv(project_id),
         media_type="text/csv",
         headers={"Content-Disposition": f'attachment; filename="project_{project_id}.csv"'},
     )

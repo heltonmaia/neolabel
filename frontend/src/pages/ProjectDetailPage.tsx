@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import axios from 'axios';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { me } from '@/api/auth';
@@ -75,6 +76,33 @@ export default function ProjectDetailPage() {
   }, [videoPreviewUrl]);
   const [exportOpen, setExportOpen] = useState(false);
   const [exportFormat, setExportFormat] = useState<'json' | 'jsonl' | 'csv' | 'yolo'>('json');
+  const [exportProgress, setExportProgress] = useState<
+    | null
+    | { format: 'json' | 'jsonl' | 'csv' | 'yolo'; loaded: number; total: number | null }
+  >(null);
+  const exportAbortRef = useRef<AbortController | null>(null);
+
+  async function handleExport() {
+    const fmt = exportFormat;
+    const controller = new AbortController();
+    exportAbortRef.current = controller;
+    setExportProgress({ format: fmt, loaded: 0, total: null });
+    setExportOpen(false);
+    try {
+      await downloadExport(projectId, fmt, {
+        signal: controller.signal,
+        onProgress: (p) => setExportProgress({ format: fmt, loaded: p.loaded, total: p.total }),
+      });
+    } catch (err) {
+      if (!axios.isCancel(err)) {
+        console.error('export failed', err);
+        alert('Export failed — check the backend logs.');
+      }
+    } finally {
+      exportAbortRef.current = null;
+      setExportProgress(null);
+    }
+  }
 
   // Videos table filters (admin)
   const [videoQuery, setVideoQuery] = useState('');
@@ -292,13 +320,11 @@ export default function ProjectDetailPage() {
                 </label>
               ))}
               <button
-                onClick={() => {
-                  downloadExport(projectId, exportFormat);
-                  setExportOpen(false);
-                }}
-                className="w-full bg-blue-600 text-white text-sm rounded px-3 py-1.5 hover:bg-blue-700"
+                onClick={handleExport}
+                disabled={!!exportProgress}
+                className="w-full bg-blue-600 text-white text-sm rounded px-3 py-1.5 hover:bg-blue-700 disabled:bg-slate-300"
               >
-                Download
+                {exportProgress ? 'Downloading…' : 'Download'}
               </button>
             </div>
           )}
@@ -1162,6 +1188,47 @@ export default function ProjectDetailPage() {
           </div>
         )}
       </section>
+
+      {exportProgress && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="fixed bottom-4 right-4 z-50 bg-white border rounded-lg shadow-lg p-4 w-80 space-y-2"
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-medium">
+              Exporting {exportProgress.format.toUpperCase()}…
+            </span>
+            <button
+              onClick={() => exportAbortRef.current?.abort()}
+              className="text-xs text-slate-500 hover:text-red-600"
+              title="Cancel"
+            >
+              Cancel
+            </button>
+          </div>
+          <div className="h-2 rounded bg-slate-200 overflow-hidden">
+            {exportProgress.total ? (
+              <div
+                className="h-full bg-blue-600 transition-[width] duration-150"
+                style={{
+                  width: `${Math.min(100, (exportProgress.loaded / exportProgress.total) * 100)}%`,
+                }}
+              />
+            ) : (
+              // Indeterminate: server sent no Content-Length (chunked text stream).
+              <div className="h-full w-1/3 bg-blue-600 animate-pulse" />
+            )}
+          </div>
+          <div className="text-xs text-slate-500">
+            {exportProgress.total
+              ? `${formatBytes(exportProgress.loaded)} of ${formatBytes(exportProgress.total)} · ${Math.round(
+                  (exportProgress.loaded / exportProgress.total) * 100,
+                )}%`
+              : `${formatBytes(exportProgress.loaded)} transferred`}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

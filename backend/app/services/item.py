@@ -1,7 +1,12 @@
+import csv
 import io
+import json
+import tempfile
 import zipfile
+from collections.abc import Iterator
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import BinaryIO
 
 from app.core import storage
 from app.core.config import settings
@@ -233,8 +238,13 @@ def _jpeg_size(path: Path) -> tuple[int, int] | None:
         return None
 
 
-def export_yolo(project_id: int) -> bytes:
+def build_yolo_export(project_id: int) -> tuple[BinaryIO, int]:
     """Build a YOLO-pose dataset ZIP (COCO 17-keypoints, Ultralytics format).
+
+    Spills to disk past 64 MiB so large projects don't pin the container's
+    RAM. Returns a file-like positioned at 0 plus its total byte size so the
+    caller can set `Content-Length` and stream it out. Caller must `close()`
+    the handle when done.
 
     Structure:
         data.yaml
@@ -245,8 +255,8 @@ def export_yolo(project_id: int) -> bytes:
     anns = {a["item_id"]: a for a in storage.list_annotations_for_project(project_id)}
     data_root = Path(settings.DATA_DIR)
 
-    buf = io.BytesIO()
-    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+    spooled = tempfile.SpooledTemporaryFile(max_size=64 * 1024 * 1024, mode="w+b")
+    with zipfile.ZipFile(spooled, "w", zipfile.ZIP_DEFLATED) as zf:
         # NOTE: intentionally no `path:` key. Ultralytics resolves relative
         # train/val against `path`; when `path` is missing it falls back to
         # the yaml file's own parent (see ultralytics/data/utils.py
@@ -321,18 +331,57 @@ def export_yolo(project_id: int) -> bytes:
             f"(same yaml works for YOLOv8/v11/v12/v26 pose.)\n",
         )
 
-    return buf.getvalue()
+    size = spooled.tell()
+    spooled.seek(0)
+    return spooled, size
 
 
-def export_project(project_id: int) -> list[dict]:
+def _iter_export_rows(project_id: int) -> Iterator[dict]:
+    """Shared row source for JSON/JSONL/CSV — yields one row at a time so the
+    caller can stream without materializing the whole list."""
     items = storage.list_items(project_id)
     anns = {a["item_id"]: a for a in storage.list_annotations_for_project(project_id)}
-    return [
-        {
+    for i in items:
+        yield {
             "id": i["id"],
             "payload": i["payload"],
             "status": i["status"],
             "annotation": anns.get(i["id"], {}).get("value") if i["id"] in anns else None,
         }
-        for i in items
-    ]
+
+
+def iter_export_json(project_id: int) -> Iterator[bytes]:
+    """Stream a JSON array one element at a time — no backend buffering."""
+    yield b"["
+    first = True
+    for row in _iter_export_rows(project_id):
+        prefix = b"" if first else b","
+        first = False
+        yield prefix + json.dumps(row, default=str, ensure_ascii=False).encode("utf-8")
+    yield b"]"
+
+
+def iter_export_jsonl(project_id: int) -> Iterator[bytes]:
+    for row in _iter_export_rows(project_id):
+        yield (json.dumps(row, default=str, ensure_ascii=False) + "\n").encode("utf-8")
+
+
+def iter_export_csv(project_id: int) -> Iterator[bytes]:
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(["id", "payload", "status", "annotation"])
+    yield buf.getvalue().encode("utf-8")
+    buf.seek(0)
+    buf.truncate()
+    for r in _iter_export_rows(project_id):
+        writer.writerow(
+            [
+                r["id"],
+                json.dumps(r["payload"], ensure_ascii=False),
+                r["status"],
+                json.dumps(r["annotation"], ensure_ascii=False) if r["annotation"] else "",
+            ]
+        )
+        yield buf.getvalue().encode("utf-8")
+        buf.seek(0)
+        buf.truncate()
