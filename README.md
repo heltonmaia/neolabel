@@ -44,9 +44,9 @@ upload data, annotate with keyboard shortcuts, and export the result.
 - **Export** in JSON, JSONL, CSV, **YOLO-pose ZIP** (Ultralytics-ready,
   COCO 17 keypoints), and **Full bundle ZIP** (`annotations.json` +
   every referenced source frame, portable across machines) for pose
-  projects. Choose scope: **all items** (pending rows emitted with
-  `annotation: null`) or **annotated only**. Downloads are streamed
-  with a progress bar and cancellable.
+  projects. Text formats and the bundle include every item (pending
+  rows carry `annotation: null`); YOLO naturally only ships annotated
+  frames. Downloads are streamed with a progress bar and cancellable.
 
 ## Stack
 

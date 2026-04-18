@@ -169,44 +169,40 @@ def export_project(
     project_id: int,
     current_user: CurrentUser,
     format: str = Query("json", pattern="^(json|jsonl|csv|yolo|bundle)$"),
-    scope: str = Query("all", pattern="^(all|annotated)$"),
 ) -> Response:
     _require_project_for_owner(project_id, current_user)
-    annotated_only = scope == "annotated"
 
-    # YOLO is always annotated-only — unannotated frames have no labels to write.
-    # The `scope` param is accepted but ignored for this format.
+    # YOLO is always annotated-only — unannotated frames have no labels.
+    # Every other format always includes every item (pending rows carry
+    # annotation: null). Downstream filtering is on the caller.
     if format == "yolo":
         stream, size = item_service.build_yolo_export(project_id)
         return _stream_zip(stream, size, f"project_{project_id}_yolo.zip")
 
-    # Filename suffix makes the scope obvious at a glance in the user's downloads folder.
-    tag = "_annotated" if annotated_only else ""
-
     if format == "bundle":
-        stream, size = item_service.build_bundle_export(project_id, annotated_only)
-        return _stream_zip(stream, size, f"project_{project_id}_bundle{tag}.zip")
+        stream, size = item_service.build_bundle_export(project_id)
+        return _stream_zip(stream, size, f"project_{project_id}_bundle.zip")
 
     if format == "json":
         return StreamingResponse(
-            item_service.iter_export_json(project_id, annotated_only),
+            item_service.iter_export_json(project_id),
             media_type="application/json",
             headers={
-                "Content-Disposition": f'attachment; filename="project_{project_id}{tag}.json"'
+                "Content-Disposition": f'attachment; filename="project_{project_id}.json"'
             },
         )
     if format == "jsonl":
         return StreamingResponse(
-            item_service.iter_export_jsonl(project_id, annotated_only),
+            item_service.iter_export_jsonl(project_id),
             media_type="application/x-ndjson",
             headers={
-                "Content-Disposition": f'attachment; filename="project_{project_id}{tag}.jsonl"'
+                "Content-Disposition": f'attachment; filename="project_{project_id}.jsonl"'
             },
         )
     return StreamingResponse(
-        item_service.iter_export_csv(project_id, annotated_only),
+        item_service.iter_export_csv(project_id),
         media_type="text/csv",
         headers={
-            "Content-Disposition": f'attachment; filename="project_{project_id}{tag}.csv"'
+            "Content-Disposition": f'attachment; filename="project_{project_id}.csv"'
         },
     )
