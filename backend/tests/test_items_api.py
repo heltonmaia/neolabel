@@ -301,7 +301,13 @@ def test_export_yolo_zip_contains_dataset(client, auth_headers, project, tmp_pat
     zf = zipfile.ZipFile(io.BytesIO(r.content))
     names = zf.namelist()
     assert "data.yaml" in names
-    assert any(n.startswith("images/train/") for n in names)
+    image_entry = next((n for n in names if n.startswith("images/train/")), None)
+    assert image_entry is not None, "YOLO export must bundle the source frames"
+    # The image bytes must be the actual JPG (starts with the SOI marker), not
+    # a placeholder or truncated copy — guards against the streaming refactor
+    # accidentally dropping image payloads.
+    img_bytes = zf.read(image_entry)
+    assert img_bytes == _tiny_jpeg(640, 480)
     assert any(n.startswith("labels/train/") and n.endswith(".txt") for n in names)
     # The yaml must NOT pin `path:` — Ultralytics resolves missing `path`
     # against the yaml file's own parent directory, which is the only
