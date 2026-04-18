@@ -148,6 +148,13 @@ No DB migrations — see SPEC §3. Use tolerant reads
 (`dict.get(..., default)`) and, for incompatible changes, add a script
 under `backend/scripts/` that walks `DATA_DIR`. **Update SPEC first.**
 
+Existing one-shots in `backend/scripts/`:
+
+- `reconcile_seed_users.py` — prunes users from `users.json` that are
+  no longer in `seed_users.json` (the startup seeder is additive-only).
+  Dry-run by default; `--apply` to commit. Invoked as
+  `python -m scripts.reconcile_seed_users` from the backend container.
+
 ## Footguns
 
 - `.env`, `seed_users.json`, and `data/` are all git-ignored — keep

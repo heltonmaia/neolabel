@@ -17,23 +17,30 @@ upload data, annotate with keyboard shortcuts, and export the result.
   - **Pose detection** — 17 COCO keypoints, interactive baby avatar as a
     visual guide, video upload with FFmpeg-based frame extraction.
   - **Image segmentation** (roadmap).
-- **Admin-only video upload** — each upload is assigned to a specific
-  annotator and every extracted frame becomes a task for that user. Admins
-  can reassign a whole video to another user or delete it (removing frames
-  and annotations).
+- **Admin-only video upload** — optionally assigned to a specific
+  annotator, or left in the admin pool (extracted frames with no
+  assignee). Admins can reassign a whole video to another user, clear
+  the assignment, or delete it (removing frames and annotations).
 - **Per-user visibility** — annotators only see projects and items
   assigned to them; admins see everything.
 - **Scale-ready project page**:
   - Videos table with search, assignee filter, per-row progress bar and
     totals.
   - Items section with status tabs, per-video filter, list/grid view,
-    and client-side pagination.
+    client-side pagination, and the assigned annotator shown on every
+    row (dashed/italic when unassigned).
 - **Annotation UI**:
   - Mouse or full-keyboard workflow (arrows + Enter/Space).
   - Shortcuts: `Tab`/`N` next keypoint, `1`–`9` jump, `O` hidden, `U`
     undo, `[` / `]` previous/next item.
   - Undo history (50 steps), clear point / clear all.
   - Auto-save on every action.
+  - **Traversal order** — choose top-to-bottom (default), left-contour,
+    or right-contour; clicking any point always overrides the pointer.
+    Output array order is unchanged across modes.
+  - **Reuse previous frame as template** — optional toggle that prefills
+    a new frame with the previous frame's keypoints so you only drag to
+    adjust. Safe to turn on/off mid-session.
 - **Export** in JSON, JSONL, CSV, and **YOLO-pose ZIP** (Ultralytics-ready,
   COCO 17 keypoints) for pose projects.
 
@@ -59,8 +66,19 @@ startup:
 - If a listed user already exists, their **password and role are
   reconciled** to match the file — so editing the password and
   restarting the backend is the supported way to rotate credentials.
-- Users not listed in the file are left untouched. To remove a user you
-  still need to delete their record from `data/users.json`.
+- Users not listed in the file are left untouched. To prune users that
+  were removed from `seed_users.json`, run the reconciliation script:
+
+  ```bash
+  # dry-run (prints what would change, touches nothing)
+  docker compose exec backend python -m scripts.reconcile_seed_users
+  # apply
+  docker compose exec backend python -m scripts.reconcile_seed_users --apply
+  ```
+
+  The script always preserves `admin`, unassigns any orphaned item
+  references, and lists projects whose `owner_id` would become orphaned
+  for manual review.
 
 If you skip the file entirely, no users are created automatically — use
 the register screen.
