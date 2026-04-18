@@ -41,10 +41,12 @@ upload data, annotate with keyboard shortcuts, and export the result.
   - **Reuse previous frame as template** — optional toggle that prefills
     a new frame with the previous frame's keypoints so you only drag to
     adjust. Safe to turn on/off mid-session.
-- **Export** in JSON, JSONL, CSV, and **YOLO-pose ZIP** (Ultralytics-ready,
-  COCO 17 keypoints) for pose projects. Choose scope: **all items**
-  (pending rows emitted with `annotation: null`) or **annotated only**.
-  Downloads are streamed with a progress bar and cancellable.
+- **Export** in JSON, JSONL, CSV, **YOLO-pose ZIP** (Ultralytics-ready,
+  COCO 17 keypoints), and **Full bundle ZIP** (`annotations.json` +
+  every referenced source frame, portable across machines) for pose
+  projects. Choose scope: **all items** (pending rows emitted with
+  `annotation: null`) or **annotated only**. Downloads are streamed
+  with a progress bar and cancellable.
 
 ## Stack
 

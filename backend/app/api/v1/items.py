@@ -140,11 +140,35 @@ def upsert_annotation(
     return item_service.upsert_annotation(item, current_user.id, data)
 
 
+def _stream_zip(stream, size: int, filename: str) -> StreamingResponse:
+    """Stream a pre-built zip (spooled temp file) in 1 MiB chunks and close it
+    when done so the OS reclaims any disk spill promptly."""
+
+    def iter_chunks():
+        try:
+            while True:
+                chunk = stream.read(1024 * 1024)
+                if not chunk:
+                    break
+                yield chunk
+        finally:
+            stream.close()
+
+    return StreamingResponse(
+        iter_chunks(),
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Content-Length": str(size),
+        },
+    )
+
+
 @router.get("/projects/{project_id}/export", tags=["items"])
 def export_project(
     project_id: int,
     current_user: CurrentUser,
-    format: str = Query("json", pattern="^(json|jsonl|csv|yolo)$"),
+    format: str = Query("json", pattern="^(json|jsonl|csv|yolo|bundle)$"),
     scope: str = Query("all", pattern="^(all|annotated)$"),
 ) -> Response:
     _require_project_for_owner(project_id, current_user)
@@ -154,30 +178,14 @@ def export_project(
     # The `scope` param is accepted but ignored for this format.
     if format == "yolo":
         stream, size = item_service.build_yolo_export(project_id)
-
-        def iter_zip():
-            # Stream from the spooled temp file in 1 MiB chunks, then close it
-            # so the OS reclaims the disk spill promptly.
-            try:
-                while True:
-                    chunk = stream.read(1024 * 1024)
-                    if not chunk:
-                        break
-                    yield chunk
-            finally:
-                stream.close()
-
-        return StreamingResponse(
-            iter_zip(),
-            media_type="application/zip",
-            headers={
-                "Content-Disposition": f'attachment; filename="project_{project_id}_yolo.zip"',
-                "Content-Length": str(size),
-            },
-        )
+        return _stream_zip(stream, size, f"project_{project_id}_yolo.zip")
 
     # Filename suffix makes the scope obvious at a glance in the user's downloads folder.
     tag = "_annotated" if annotated_only else ""
+
+    if format == "bundle":
+        stream, size = item_service.build_bundle_export(project_id, annotated_only)
+        return _stream_zip(stream, size, f"project_{project_id}_bundle{tag}.zip")
 
     if format == "json":
         return StreamingResponse(

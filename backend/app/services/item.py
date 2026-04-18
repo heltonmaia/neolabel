@@ -336,6 +336,78 @@ def build_yolo_export(project_id: int) -> tuple[BinaryIO, int]:
     return spooled, size
 
 
+def build_bundle_export(
+    project_id: int, annotated_only: bool = False
+) -> tuple[BinaryIO, int]:
+    """Build a self-contained ZIP with annotations.json + source images.
+
+    Structure:
+        README.txt
+        annotations.json        — JSON array of rows, image_url rewritten
+                                  to the archive-relative path
+        images/<stem>.<ext>     — source frames referenced by items
+
+    Items whose `payload.image_url` points at a non-existent file on disk
+    (shouldn't happen, but safe) keep their original URL untouched and
+    no image is bundled for them — the row still makes it into the json.
+    """
+    items = storage.list_items(project_id)
+    anns = {a["item_id"]: a for a in storage.list_annotations_for_project(project_id)}
+    data_root = Path(settings.DATA_DIR)
+
+    spooled = tempfile.SpooledTemporaryFile(max_size=64 * 1024 * 1024, mode="w+b")
+    rows: list[dict] = []
+    included_images = 0
+    seen: set[str] = set()
+
+    with zipfile.ZipFile(spooled, "w", zipfile.ZIP_DEFLATED) as zf:
+        for item in items:
+            ann_value = anns.get(item["id"], {}).get("value") if item["id"] in anns else None
+            if annotated_only and ann_value is None:
+                continue
+            payload = dict(item.get("payload") or {})
+            image_url = payload.get("image_url")
+            if isinstance(image_url, str) and image_url.startswith("/files/"):
+                src = data_root / image_url[len("/files/"):]
+                if src.exists():
+                    stem = f"{item['id']:06d}_{src.stem}"
+                    arc = f"images/{stem}{src.suffix}"
+                    if arc not in seen:
+                        zf.write(src, arc)
+                        seen.add(arc)
+                        included_images += 1
+                    payload["image_url"] = arc
+            rows.append(
+                {
+                    "id": item["id"],
+                    "payload": payload,
+                    "status": item["status"],
+                    "annotation": ann_value,
+                }
+            )
+
+        zf.writestr(
+            "annotations.json",
+            json.dumps(rows, default=str, ensure_ascii=False, indent=2),
+        )
+        zf.writestr(
+            "README.txt",
+            f"Neo-Label full bundle\n"
+            f"Project: {project_id}\n"
+            f"Items: {len(rows)} "
+            f"({'annotated only' if annotated_only else 'all items'})\n"
+            f"Images included: {included_images}\n"
+            f"\nannotations.json is a JSON array, one record per item.\n"
+            f"Each payload.image_url is a path relative to this archive\n"
+            f"(images/<stem>.<ext>), so the bundle can be unzipped and\n"
+            f"consumed as-is on any machine.\n",
+        )
+
+    size = spooled.tell()
+    spooled.seek(0)
+    return spooled, size
+
+
 def _iter_export_rows(project_id: int, annotated_only: bool = False) -> Iterator[dict]:
     """Shared row source for JSON/JSONL/CSV — yields one row at a time so the
     caller can stream without materializing the whole list. When

@@ -75,11 +75,17 @@ export default function ProjectDetailPage() {
     };
   }, [videoPreviewUrl]);
   const [exportOpen, setExportOpen] = useState(false);
-  const [exportFormat, setExportFormat] = useState<'json' | 'jsonl' | 'csv' | 'yolo'>('json');
+  const [exportFormat, setExportFormat] = useState<
+    'json' | 'jsonl' | 'csv' | 'yolo' | 'bundle'
+  >('json');
   const [exportScope, setExportScope] = useState<'all' | 'annotated'>('all');
   const [exportProgress, setExportProgress] = useState<
     | null
-    | { format: 'json' | 'jsonl' | 'csv' | 'yolo'; loaded: number; total: number | null }
+    | {
+        format: 'json' | 'jsonl' | 'csv' | 'yolo' | 'bundle';
+        loaded: number;
+        total: number | null;
+      }
   >(null);
   const exportAbortRef = useRef<AbortController | null>(null);
 
@@ -297,7 +303,14 @@ export default function ProjectDetailPage() {
                   { v: 'jsonl', label: 'JSONL', hint: 'one item per line' },
                   { v: 'csv', label: 'CSV', hint: 'spreadsheet-friendly' },
                   ...(isPose
-                    ? ([{ v: 'yolo', label: 'YOLO-pose (ZIP)', hint: 'Ultralytics, COCO 17 kp' }] as const)
+                    ? ([
+                        { v: 'yolo', label: 'YOLO-pose (ZIP)', hint: 'Ultralytics, COCO 17 kp' },
+                        {
+                          v: 'bundle',
+                          label: 'Full bundle (ZIP)',
+                          hint: 'annotations.json + all source images',
+                        },
+                      ] as const)
                     : []),
                 ] as const
               ).map((opt) => (

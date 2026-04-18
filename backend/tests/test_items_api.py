@@ -321,6 +321,77 @@ def test_export_yolo_zip_contains_dataset(client, auth_headers, project, tmp_pat
     assert line[0] == "0"
 
 
+def test_export_bundle_ships_annotations_and_images(client, auth_headers, project, tmp_path):
+    import io
+    import zipfile
+
+    frames_dir = tmp_path / "projects" / str(project["id"]) / "frames" / "vid"
+    frames_dir.mkdir(parents=True, exist_ok=True)
+    (frames_dir / "f_000001.jpg").write_bytes(_tiny_jpeg(320, 240))
+    (frames_dir / "f_000002.jpg").write_bytes(_tiny_jpeg(320, 240))
+
+    client.post(
+        f"/api/v1/projects/{project['id']}/items/bulk",
+        json={
+            "items": [
+                {"payload": {"image_url": f"/files/projects/{project['id']}/frames/vid/f_000001.jpg"}},
+                {"payload": {"image_url": f"/files/projects/{project['id']}/frames/vid/f_000002.jpg"}},
+            ]
+        },
+        headers=auth_headers,
+    )
+    item_ids = [
+        i["id"]
+        for i in client.get(
+            f"/api/v1/projects/{project['id']}/items", headers=auth_headers
+        ).json()["items"]
+    ]
+    full = [[i * 10, i * 10, 2] for i in range(17)]
+    # Annotate only the first item; leave the second pending.
+    client.put(
+        f"/api/v1/items/{item_ids[0]}/annotation",
+        json={"value": {"keypoints": full}},
+        headers=auth_headers,
+    )
+
+    # scope=all bundles both items + both images
+    r = client.get(
+        f"/api/v1/projects/{project['id']}/export?format=bundle",
+        headers=auth_headers,
+    )
+    assert r.status_code == 200
+    assert r.headers["content-type"] == "application/zip"
+    assert "_bundle.zip" in r.headers["content-disposition"]
+
+    zf = zipfile.ZipFile(io.BytesIO(r.content))
+    names = set(zf.namelist())
+    assert "annotations.json" in names
+    assert "README.txt" in names
+    image_entries = [n for n in names if n.startswith("images/")]
+    assert len(image_entries) == 2
+
+    rows = json.loads(zf.read("annotations.json"))
+    assert len(rows) == 2
+    # image_url is rewritten to the archive-relative path so the bundle is
+    # self-contained and portable.
+    for r_ in rows:
+        url = r_["payload"]["image_url"]
+        assert url.startswith("images/")
+        assert url in names
+
+    # scope=annotated drops the pending row AND its image.
+    r2 = client.get(
+        f"/api/v1/projects/{project['id']}/export?format=bundle&scope=annotated",
+        headers=auth_headers,
+    )
+    zf2 = zipfile.ZipFile(io.BytesIO(r2.content))
+    rows2 = json.loads(zf2.read("annotations.json"))
+    assert len(rows2) == 1
+    image_entries2 = [n for n in zf2.namelist() if n.startswith("images/")]
+    assert len(image_entries2) == 1
+    assert "_bundle_annotated.zip" in r2.headers["content-disposition"]
+
+
 def test_clear_annotation_resets_status(client, auth_headers, project):
     client.post(
         f"/api/v1/projects/{project['id']}/items/bulk",

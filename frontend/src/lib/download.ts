@@ -12,7 +12,7 @@ export interface DownloadOptions {
   signal?: AbortSignal;
 }
 
-export type ExportFormat = 'json' | 'jsonl' | 'csv' | 'yolo';
+export type ExportFormat = 'json' | 'jsonl' | 'csv' | 'yolo' | 'bundle';
 // 'all' = every item (pending rows carry annotation: null);
 // 'annotated' = only rows with an annotation record. Ignored server-side for YOLO.
 export type ExportScope = 'all' | 'annotated';
@@ -40,7 +40,9 @@ export async function downloadExport(
   a.download =
     format === 'yolo'
       ? `project_${projectId}_yolo.zip`
-      : `project_${projectId}${tag}.${format}`;
+      : format === 'bundle'
+        ? `project_${projectId}_bundle${tag}.zip`
+        : `project_${projectId}${tag}.${format}`;
   a.click();
   URL.revokeObjectURL(url);
 }
