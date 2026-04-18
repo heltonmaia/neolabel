@@ -58,3 +58,17 @@ export const SKELETON: [number, number][] = [
 
 // Visibility: 0 = not labeled, 1 = labeled but occluded, 2 = labeled and visible
 export type KeypointValue = [number, number, 0 | 1 | 2];
+
+// Traversal orderings for guided annotation. Each is a permutation of the 17
+// COCO ids — the stored output shape is unchanged, only the "next keypoint"
+// pointer walks this list.
+//
+//   top   — COCO default (nose, eyes, ears, shoulders, …, ankles)
+//   left  — head → down the image-left side → across feet → up image-right
+//   right — head → down the image-right side → across feet → up image-left
+export type OrderMode = 'top' | 'left' | 'right';
+export const ORDERINGS: Record<OrderMode, readonly number[]> = {
+  top:   [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16],
+  left:  [0, 1, 3, 5, 7, 9, 11, 13, 15, 16, 14, 12, 10, 8, 6, 4, 2],
+  right: [0, 2, 4, 6, 8, 10, 12, 14, 16, 15, 13, 11, 9, 7, 5, 3, 1],
+};

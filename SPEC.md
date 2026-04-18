@@ -123,14 +123,16 @@ user does not own returns **404** (to avoid leaking existence), with
 
 ### Videos (pose projects)
 - `POST   /projects/{id}/videos` — admin-only; form(`file`, `fps`,
-  `assignee_id`, `rotation`); streams the upload to disk in 1 MiB
+  `assignee_id?`, `rotation`); streams the upload to disk in 1 MiB
   chunks, caps at **500 MiB** (returns 413 beyond that). `rotation`
   ∈ {0, 90, 180, 270} applies an FFmpeg `transpose` so extracted
-  frames come out upright. Creates items assigned to that annotator.
+  frames come out upright. `assignee_id` is optional — omit to leave
+  every extracted frame unassigned (admin-pool only).
 - `GET    /projects/{id}/videos` — admin overview (per-video
-  `frames`, `done`, `assigned_to`)
+  `frames`, `done`, `assigned_to` — `null` when unassigned or mixed)
 - `PATCH  /projects/{id}/videos/{source}/assign` — admin-only;
-  reassigns every frame of the video
+  reassigns every frame of the video. Body `{"assignee_id": null}`
+  clears the assignment.
 - `DELETE /projects/{id}/videos/{source}` — admin-only; deletes
   items, annotations, frames, and the original file
 

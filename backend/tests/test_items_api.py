@@ -255,6 +255,11 @@ def test_export_yolo_zip_contains_dataset(client, auth_headers, project, tmp_pat
     assert "data.yaml" in names
     assert any(n.startswith("images/train/") for n in names)
     assert any(n.startswith("labels/train/") and n.endswith(".txt") for n in names)
+    # The yaml must NOT pin `path:` — Ultralytics resolves missing `path`
+    # against the yaml file's own parent directory, which is the only
+    # CWD-independent behaviour for an extracted export.
+    yaml_text = zf.read("data.yaml").decode()
+    assert "path:" not in yaml_text
     label_file = next(n for n in names if n.startswith("labels/train/"))
     line = zf.read(label_file).decode().strip().split()
     # class + 4 bbox + 17*3 keypoints = 56 fields

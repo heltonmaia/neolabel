@@ -130,7 +130,13 @@ export default function ProjectDetailPage() {
 
   const videoUpload = useMutation({
     mutationFn: () =>
-      uploadVideo(projectId, videoFile!, videoFps, videoAssignee as number, videoRotation),
+      uploadVideo(
+        projectId,
+        videoFile!,
+        videoFps,
+        videoAssignee === '' ? null : videoAssignee,
+        videoRotation,
+      ),
     onSuccess: () => {
       setVideoFile(null);
       setVideoRotation(0);
@@ -140,7 +146,7 @@ export default function ProjectDetailPage() {
   });
 
   const reassign = useMutation({
-    mutationFn: (p: { source: string; assigneeId: number }) =>
+    mutationFn: (p: { source: string; assigneeId: number | null }) =>
       reassignVideo(projectId, p.source, p.assigneeId),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['items', projectId] });
@@ -211,6 +217,17 @@ export default function ProjectDetailPage() {
       return true;
     });
   }, [items, statusFilter, sourceFilter]);
+
+  const userNameById = useMemo(() => {
+    const m = new Map<number, string>();
+    for (const u of usersQ.data ?? []) m.set(u.id, u.username);
+    return m;
+  }, [usersQ.data]);
+
+  function annotatorLabel(uid: number | null | undefined): string | null {
+    if (uid == null) return null;
+    return userNameById.get(uid) ?? `user #${uid}`;
+  }
 
   if (projectQ.isLoading) return <p className="p-6">Loading…</p>;
   if (!projectQ.data) return <p className="p-6">Project not found.</p>;
@@ -363,8 +380,8 @@ export default function ProjectDetailPage() {
           <div>
             <h2 className="font-semibold">Upload video</h2>
             <p className="text-xs text-slate-500">
-              Pick a video, choose an FPS, and assign it to one annotator — every
-              extracted frame becomes that user's task.
+              Pick a video and an FPS. Assigning to an annotator is optional —
+              leave unassigned to keep frames in the admin pool.
             </p>
           </div>
 
@@ -560,7 +577,7 @@ export default function ProjectDetailPage() {
                 }
                 className="border rounded px-2 py-1.5 text-sm w-full"
               >
-                <option value="">— pick an annotator —</option>
+                <option value="">— leave unassigned —</option>
                 {(usersQ.data ?? []).map((u) => (
                   <option key={u.id} value={u.id}>
                     {u.username} ({u.role})
@@ -568,7 +585,7 @@ export default function ProjectDetailPage() {
                 ))}
               </select>
               <div className="text-xs text-slate-500">
-                Every extracted frame goes to this user.
+                Optional — assign later from the videos table if you prefer.
               </div>
             </div>
           </div>
@@ -605,13 +622,13 @@ export default function ProjectDetailPage() {
                 </>
               ) : (
                 <span className="text-slate-400">
-                  Pick a video and an annotator to enable upload.
+                  Pick a video to enable upload.
                 </span>
               )}
             </div>
             <button
               onClick={() => videoUpload.mutate()}
-              disabled={!videoFile || !videoAssignee || videoUpload.isPending}
+              disabled={!videoFile || videoUpload.isPending}
               className="inline-flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 disabled:opacity-50 text-sm font-medium"
             >
               {videoUpload.isPending ? (
@@ -776,12 +793,13 @@ export default function ProjectDetailPage() {
                     <select
                       value={v.assigned_to ?? ''}
                       onChange={(e) => {
-                        const uid = Number(e.target.value);
-                        if (uid) reassign.mutate({ source: v.source_video, assigneeId: uid });
+                        const raw = e.target.value;
+                        const assigneeId = raw === '' ? null : Number(raw);
+                        reassign.mutate({ source: v.source_video, assigneeId });
                       }}
                       className="border rounded px-2 py-1 text-sm"
                     >
-                      <option value="">— mixed / none —</option>
+                      <option value="">— unassigned —</option>
                       {(usersQ.data ?? []).map((u) => (
                         <option key={u.id} value={u.id}>
                           {u.username}
@@ -985,8 +1003,21 @@ export default function ProjectDetailPage() {
                       no preview
                     </div>
                   )}
-                  <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent text-white text-xs px-2 py-1 truncate">
-                    {label}
+                  <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent text-white text-xs px-2 py-1 space-y-0.5">
+                    <div className="truncate">{label}</div>
+                    {(() => {
+                      const name = annotatorLabel(i.assigned_to);
+                      return (
+                        <div
+                          className={
+                            'truncate text-[10px] ' +
+                            (name ? 'text-white/80' : 'text-white/50 italic')
+                          }
+                        >
+                          {name ?? 'unassigned'}
+                        </div>
+                      );
+                    })()}
                   </div>
                   <span
                     className={`absolute top-1 right-1 text-[10px] px-1.5 py-0.5 rounded ${
@@ -1028,6 +1059,22 @@ export default function ProjectDetailPage() {
                         : JSON.stringify(i.payload))}
                   </span>
                 </Link>
+                {(() => {
+                  const name = annotatorLabel(i.assigned_to);
+                  return (
+                    <span
+                      className={
+                        'text-xs px-2 py-0.5 rounded border whitespace-nowrap ' +
+                        (name
+                          ? 'bg-slate-50 text-slate-700 border-slate-200'
+                          : 'bg-transparent text-slate-400 border-dashed border-slate-300 italic')
+                      }
+                      title={name ? `Assigned to ${name}` : 'No annotator assigned'}
+                    >
+                      {name ?? 'unassigned'}
+                    </span>
+                  );
+                })()}
                 <span
                   className={`text-xs px-2 py-0.5 rounded capitalize ${
                     i.status === 'done'

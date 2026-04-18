@@ -5,7 +5,21 @@ import { getProject } from '@/api/projects';
 import { getItem, listItems, saveAnnotation } from '@/api/items';
 import { FILES_BASE } from '@/lib/env';
 import BabyAvatar from '@/components/BabyAvatar';
-import { COCO_KEYPOINTS, SKELETON, type KeypointValue } from '@/lib/keypoints';
+import {
+  COCO_KEYPOINTS,
+  ORDERINGS,
+  SKELETON,
+  type KeypointValue,
+  type OrderMode,
+} from '@/lib/keypoints';
+
+const ORDER_STORAGE_KEY = 'pose.orderMode';
+const TEMPLATE_STORAGE_KEY = 'pose.useTemplate';
+const ORDER_LABEL: Record<OrderMode, string> = {
+  top: 'Top → bottom',
+  left: 'Left contour',
+  right: 'Right contour',
+};
 
 type KeypointsMap = Record<number, KeypointValue | null>;
 
@@ -37,6 +51,22 @@ export default function PoseAnnotatePage() {
 
   const [currentKp, setCurrentKp] = useState(0);
   const [keypoints, setKeypoints] = useState<KeypointsMap>(emptyKeypoints());
+  const [orderMode, setOrderMode] = useState<OrderMode>(() => {
+    const saved = typeof window !== 'undefined' ? localStorage.getItem(ORDER_STORAGE_KEY) : null;
+    return saved && saved in ORDERINGS ? (saved as OrderMode) : 'top';
+  });
+  const sequence = ORDERINGS[orderMode];
+  const [useTemplate, setUseTemplate] = useState<boolean>(() => {
+    return typeof window !== 'undefined'
+      && localStorage.getItem(TEMPLATE_STORAGE_KEY) === '1';
+  });
+
+  useEffect(() => {
+    localStorage.setItem(ORDER_STORAGE_KEY, orderMode);
+  }, [orderMode]);
+  useEffect(() => {
+    localStorage.setItem(TEMPLATE_STORAGE_KEY, useTemplate ? '1' : '0');
+  }, [useTemplate]);
   const historyRef = useRef<KeypointsMap[]>([]);
   const imgRef = useRef<HTMLImageElement>(null);
   const draggingRef = useRef<{ id: number; moved: boolean } | null>(null);
@@ -45,23 +75,6 @@ export default function PoseAnnotatePage() {
   const [cursor, setCursor] = useState<{ x: number; y: number }>({ x: 0.5, y: 0.5 });
   const [keyboardMode, setKeyboardMode] = useState(false);
 
-  useEffect(() => {
-    const existing = itemQ.data?.annotation?.value as
-      | { keypoints?: KeypointValue[] }
-      | undefined;
-    if (existing?.keypoints && existing.keypoints.length === 17) {
-      const m: KeypointsMap = {};
-      existing.keypoints.forEach((v, i) => {
-        m[i] = v[2] > 0 ? v : null;
-      });
-      setKeypoints(m);
-    } else {
-      setKeypoints(emptyKeypoints());
-    }
-    historyRef.current = [];
-    setCurrentKp(0);
-  }, [currentItemId, itemQ.data?.id]);
-
   const items = itemsQ.data?.items ?? [];
   const idx = useMemo(
     () => items.findIndex((i) => i.id === currentItemId),
@@ -69,6 +82,14 @@ export default function PoseAnnotatePage() {
   );
   const prev = idx > 0 ? items[idx - 1] : null;
   const next = idx >= 0 && idx < items.length - 1 ? items[idx + 1] : null;
+
+  // Only fetched when the template toggle is on — reuses the same cache key
+  // as itemQ, so navigating back already has the data warm.
+  const prevItemQ = useQuery({
+    queryKey: ['item', prev?.id],
+    queryFn: () => getItem(prev!.id),
+    enabled: useTemplate && !!prev,
+  });
 
   const save = useMutation({
     mutationFn: (kps: KeypointsMap) => {
@@ -83,15 +104,86 @@ export default function PoseAnnotatePage() {
     },
   });
 
+  // Tracks the last item the template was auto-applied to, so toggling or
+  // refetching prev doesn't re-apply after the user started editing.
+  const appliedTemplateRef = useRef<number | null>(null);
+  const keypointsRef = useRef<KeypointsMap>(keypoints);
+  useEffect(() => {
+    keypointsRef.current = keypoints;
+  }, [keypoints]);
+
+  useEffect(() => {
+    const existing = itemQ.data?.annotation?.value as
+      | { keypoints?: KeypointValue[] }
+      | undefined;
+    const hasPlaced =
+      !!existing?.keypoints
+      && existing.keypoints.length === 17
+      && existing.keypoints.some((v) => v[2] > 0);
+    if (hasPlaced) {
+      const m: KeypointsMap = {};
+      existing!.keypoints!.forEach((v, i) => {
+        m[i] = v[2] > 0 ? v : null;
+      });
+      setKeypoints(m);
+    } else {
+      setKeypoints(emptyKeypoints());
+    }
+    historyRef.current = [];
+    setCurrentKp(sequence[0]);
+    appliedTemplateRef.current = null;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentItemId, itemQ.data?.id]);
+
+  // Apply previous-frame pose once per item, only when current is empty.
+  useEffect(() => {
+    if (!useTemplate || !prev) return;
+    if (appliedTemplateRef.current === currentItemId) return;
+    if (itemQ.data?.id !== currentItemId) return; // wait for the real item to load
+    const hasAnyPlaced = Object.values(keypointsRef.current).some(
+      (v) => v && v[2] > 0,
+    );
+    if (hasAnyPlaced) return;
+    const tmpl = (prevItemQ.data?.annotation?.value as
+      | { keypoints?: KeypointValue[] }
+      | undefined)?.keypoints;
+    if (!tmpl || tmpl.length !== 17) return;
+    const m: KeypointsMap = {};
+    tmpl.forEach((v, i) => {
+      m[i] = v[2] > 0 ? v : null;
+    });
+    if (!Object.values(m).some((v) => v && v[2] > 0)) return;
+    appliedTemplateRef.current = currentItemId;
+    setKeypoints(m);
+    save.mutate(m);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [useTemplate, prev?.id, prevItemQ.data?.id, currentItemId, itemQ.data?.id]);
+
   function pushHistory() {
     historyRef.current.push({ ...keypoints });
     if (historyRef.current.length > 50) historyRef.current.shift();
   }
 
   function advanceAfterPlace(nextMap: KeypointsMap, placed: number) {
-    const unset = COCO_KEYPOINTS.find((kp) => kp.id > placed && !nextMap[kp.id]);
-    if (unset) setCurrentKp(unset.id);
-    else if (placed < 16) setCurrentKp(placed + 1);
+    const placedIdx = sequence.indexOf(placed);
+    // Walk the chosen sequence forward looking for the next empty slot.
+    for (let i = 1; i <= 16; i++) {
+      const cand = sequence[(placedIdx + i) % 17];
+      if (!nextMap[cand]) {
+        setCurrentKp(cand);
+        return;
+      }
+    }
+    // Everything labeled — advance to the next position in sequence (or stay).
+    if (placedIdx >= 0 && placedIdx < 16) setCurrentKp(sequence[placedIdx + 1]);
+  }
+
+  function stepCurrent(delta: 1 | -1) {
+    setCurrentKp((k) => {
+      const idx = sequence.indexOf(k);
+      const newIdx = ((idx === -1 ? 0 : idx) + delta + 17) % 17;
+      return sequence[newIdx];
+    });
   }
 
   function placeAt(xNat: number, yNat: number, visibility: 1 | 2 = 2) {
@@ -166,14 +258,14 @@ export default function PoseAnnotatePage() {
       if (e.key === ']' && next) return navigate(`/projects/${projectId}/annotate/${next.id}`);
       if (e.key === '[' && prev) return navigate(`/projects/${projectId}/annotate/${prev.id}`);
 
-      // Switch keypoint
+      // Switch keypoint (walks the current ordering)
       if (e.key === 'Tab') {
         e.preventDefault();
-        setCurrentKp((k) => (e.shiftKey ? (k + 16) % 17 : (k + 1) % 17));
+        stepCurrent(e.shiftKey ? -1 : 1);
         return;
       }
-      if (e.key === 'n' || e.key === 'N') return setCurrentKp((k) => (k + 1) % 17);
-      if (e.key === 'p' || e.key === 'P') return setCurrentKp((k) => (k + 16) % 17);
+      if (e.key === 'n' || e.key === 'N') return stepCurrent(1);
+      if (e.key === 'p' || e.key === 'P') return stepCurrent(-1);
 
       // Number keys 1-9 jump to keypoint 1-9
       if (e.key >= '1' && e.key <= '9') {
@@ -387,6 +479,48 @@ export default function PoseAnnotatePage() {
             <span className="text-sm text-slate-400">{doneCount}/17</span>
           </div>
 
+          <div className="space-y-1">
+            <p className="text-xs text-slate-500 uppercase tracking-wide">Traversal order</p>
+            <div className="grid grid-cols-3 text-xs rounded border overflow-hidden">
+              {(['left', 'top', 'right'] as OrderMode[]).map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  onClick={() => setOrderMode(m)}
+                  className={
+                    'px-2 py-1.5 font-medium transition-colors ' +
+                    (orderMode === m
+                      ? 'bg-red-500 text-white'
+                      : 'bg-white text-slate-600 hover:bg-slate-50')
+                  }
+                >
+                  {ORDER_LABEL[m]}
+                </button>
+              ))}
+            </div>
+            <p className="text-xs text-slate-500">
+              Controls the "next keypoint" pointer. You can always click a
+              point on the image or the avatar to override it.
+            </p>
+          </div>
+
+          <label className="flex items-start gap-2 text-xs text-slate-700 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={useTemplate}
+              onChange={(e) => setUseTemplate(e.target.checked)}
+              className="mt-0.5 accent-red-500"
+            />
+            <span>
+              <span className="font-medium">Reuse previous pose</span>
+              <span className="block text-slate-500">
+                New frames start with the previous frame's keypoints — drag any
+                point to adjust. Ignored on frames that already have an
+                annotation.
+              </span>
+            </span>
+          </label>
+
           <BabyAvatar
             currentId={currentKp}
             keypoints={keypoints}
@@ -419,7 +553,7 @@ export default function PoseAnnotatePage() {
             <div className="px-2 py-2 space-y-1">
               <p><kbd className="border rounded px-1">←↑↓→</kbd> move cursor on image (Shift = bigger step)</p>
               <p><kbd className="border rounded px-1">Enter</kbd> / <kbd className="border rounded px-1">Space</kbd> place keypoint at cursor</p>
-              <p><kbd className="border rounded px-1">Tab</kbd> / <kbd className="border rounded px-1">N</kbd> next keypoint · <kbd className="border rounded px-1">Shift+Tab</kbd> / <kbd className="border rounded px-1">P</kbd> previous</p>
+              <p><kbd className="border rounded px-1">Tab</kbd> / <kbd className="border rounded px-1">N</kbd> next keypoint · <kbd className="border rounded px-1">Shift+Tab</kbd> / <kbd className="border rounded px-1">P</kbd> previous (walks the chosen order)</p>
               <p><kbd className="border rounded px-1">1</kbd>…<kbd className="border rounded px-1">9</kbd> jump to keypoint 1–9</p>
               <p><kbd className="border rounded px-1">[</kbd> / <kbd className="border rounded px-1">]</kbd> previous / next item</p>
               <p><b>Left click</b> / <kbd className="border rounded px-1">Enter</kbd> = visible · <b>Right click</b> / <kbd className="border rounded px-1">O</kbd> = occluded (position still required)</p>

@@ -34,11 +34,12 @@ async def upload_video(
     current_user: AdminUser,
     file: UploadFile = File(...),
     fps: float = Form(...),
-    assignee_id: int = Form(...),
+    assignee_id: int | None = Form(None),
     rotation: int = Form(0),
 ) -> dict:
     _require_project(project_id)
-    _require_user(assignee_id)
+    if assignee_id is not None:
+        _require_user(assignee_id)
     try:
         return video_service.extract_frames(
             project_id,
@@ -76,7 +77,8 @@ def reassign_video(
     current_user: AdminUser,
 ) -> dict:
     _require_project(project_id)
-    _require_user(data.assignee_id)
+    if data.assignee_id is not None:
+        _require_user(data.assignee_id)
     count = item_service.reassign_video(project_id, source_video, data.assignee_id)
     if count == 0:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Video not found in project")

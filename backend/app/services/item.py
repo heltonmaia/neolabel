@@ -76,8 +76,11 @@ def videos_in_project(project_id: int) -> list[dict]:
     return sorted(groups.values(), key=lambda g: g["source_video"])
 
 
-def reassign_video(project_id: int, source_video: str, assignee_id: int) -> int:
-    """Reassign every frame of `source_video` to `assignee_id`. Returns count updated."""
+def reassign_video(project_id: int, source_video: str, assignee_id: int | None) -> int:
+    """Reassign every frame of `source_video` to `assignee_id` (None = unassign).
+
+    Returns count updated.
+    """
     count = 0
     for item in storage.list_items(project_id):
         if (item.get("payload") or {}).get("source_video") != source_video:
@@ -244,9 +247,14 @@ def export_yolo(project_id: int) -> bytes:
 
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        # NOTE: intentionally no `path:` key. Ultralytics resolves relative
+        # train/val against `path`; when `path` is missing it falls back to
+        # the yaml file's own parent (see ultralytics/data/utils.py
+        # `check_det_dataset`). With `path: .` it resolves against CWD
+        # instead, which breaks any training run started from a directory
+        # that isn't the extracted dataset root.
         yaml = (
             "# YOLO-pose dataset (COCO 17 keypoints)\n"
-            "path: .\n"
             "train: images/train\n"
             "val: images/train\n"
             "kpt_shape: [17, 3]\n"

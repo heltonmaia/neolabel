@@ -85,14 +85,19 @@ def test_video_upload_rejects_annotator(
     assert r.status_code == 403
 
 
-def test_video_upload_requires_assignee(client, admin_headers, admin_project):
-    r = client.post(
-        f"/api/v1/projects/{admin_project['id']}/videos",
-        files={"file": ("v.mp4", b"dummy", "video/mp4")},
-        data={"fps": "1"},
-        headers=admin_headers,
-    )
-    assert r.status_code == 422  # missing form field
+def test_video_upload_without_assignee_ok(client, admin_headers, admin_project):
+    with patch("app.api.v1.videos.video_service.extract_frames", side_effect=_fake_extract):
+        r = client.post(
+            f"/api/v1/projects/{admin_project['id']}/videos",
+            files={"file": ("v.mp4", b"dummy", "video/mp4")},
+            data={"fps": "1"},
+            headers=admin_headers,
+        )
+    assert r.status_code == 201
+    items = client.get(
+        f"/api/v1/projects/{admin_project['id']}/items", headers=admin_headers
+    ).json()["items"]
+    assert items and all(i["assigned_to"] is None for i in items)
 
 
 def test_video_upload_rejects_unknown_assignee(client, admin_headers, admin_project):
@@ -182,6 +187,30 @@ def test_admin_reassigns_video(
     assert client.get(
         f"/api/v1/projects/{admin_project['id']}/items", headers=neuro2_headers
     ).json()["total"] == 3
+
+
+def test_admin_reassigns_video_to_none(
+    client, admin_headers, admin_project, neuro_headers
+):
+    n1 = _neuro_id(client, admin_headers, "neuromate1")
+    with patch("app.api.v1.videos.video_service.extract_frames", side_effect=_fake_extract):
+        client.post(
+            f"/api/v1/projects/{admin_project['id']}/videos",
+            files={"file": ("v.mp4", b"dummy", "video/mp4")},
+            data={"fps": "1", "assignee_id": str(n1)},
+            headers=admin_headers,
+        )
+    r = client.patch(
+        f"/api/v1/projects/{admin_project['id']}/videos/clip/assign",
+        json={"assignee_id": None},
+        headers=admin_headers,
+    )
+    assert r.status_code == 200
+    assert r.json() == {"reassigned": 3, "assignee_id": None}
+    # neuromate1 no longer sees the project.
+    assert client.get(
+        f"/api/v1/projects/{admin_project['id']}/items", headers=neuro_headers
+    ).status_code == 404
 
 
 def test_admin_deletes_video(

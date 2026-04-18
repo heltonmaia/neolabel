@@ -31,7 +31,7 @@ class ItemRead(BaseModel):
 
 
 class ReassignRequest(BaseModel):
-    assignee_id: int
+    assignee_id: int | None = None
 
 
 class AnnotationUpsert(BaseModel):

@@ -11,13 +11,13 @@ export async function uploadVideo(
   projectId: number,
   file: File,
   fps: number,
-  assigneeId: number,
+  assigneeId: number | null,
   rotation: 0 | 90 | 180 | 270 = 0,
 ) {
   const form = new FormData();
   form.append('file', file);
   form.append('fps', String(fps));
-  form.append('assignee_id', String(assigneeId));
+  if (assigneeId !== null) form.append('assignee_id', String(assigneeId));
   form.append('rotation', String(rotation));
   const { data } = await api.post<{ video: string; frames: number }>(
     `/projects/${projectId}/videos`,
@@ -35,9 +35,9 @@ export async function listVideos(projectId: number) {
 export async function reassignVideo(
   projectId: number,
   sourceVideo: string,
-  assigneeId: number,
+  assigneeId: number | null,
 ) {
-  const { data } = await api.patch<{ reassigned: number; assignee_id: number }>(
+  const { data } = await api.patch<{ reassigned: number; assignee_id: number | null }>(
     `/projects/${projectId}/videos/${encodeURIComponent(sourceVideo)}/assign`,
     { assignee_id: assigneeId },
   );
