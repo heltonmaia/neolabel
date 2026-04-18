@@ -15,8 +15,9 @@ diverges, update the spec **before** the code.
 - ✅ **Phase 3 — Pose detection.** 17 COCO keypoints, baby-avatar guide,
   video upload with FFmpeg frame extraction, YOLO-pose ZIP export.
 - ✅ **Phase 4 — Multi-user assignments.** `admin` role, per-user
-  `assigned_to` on items, admin-only video upload with assignee,
-  per-video reassign/delete, visibility filtered by assignment.
+  `assigned_to` on items (optional — items may be unassigned and live
+  in the admin pool), admin-only video upload with optional assignee,
+  per-video reassign/unassign/delete, visibility filtered by assignment.
 - ⏳ **Phase 5 — Review workflow.** `reviewer` role wiring, Cohen's
   kappa, progress dashboards.
 - ⏳ **Phase 6 — Images beyond pose.** Image classification, bounding
