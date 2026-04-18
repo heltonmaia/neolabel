@@ -42,7 +42,9 @@ upload data, annotate with keyboard shortcuts, and export the result.
     a new frame with the previous frame's keypoints so you only drag to
     adjust. Safe to turn on/off mid-session.
 - **Export** in JSON, JSONL, CSV, and **YOLO-pose ZIP** (Ultralytics-ready,
-  COCO 17 keypoints) for pose projects.
+  COCO 17 keypoints) for pose projects. Choose scope: **all items**
+  (pending rows emitted with `annotation: null`) or **annotated only**.
+  Downloads are streamed with a progress bar and cancellable.
 
 ## Stack
 

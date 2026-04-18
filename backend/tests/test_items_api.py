@@ -175,6 +175,54 @@ def test_export_csv(client, auth_headers, project):
     assert r.text.splitlines()[0] == "id,payload,status,annotation"
 
 
+def test_export_scope_filters_unannotated(client, auth_headers, project):
+    # Three items: two annotated, one pending.
+    client.post(
+        f"/api/v1/projects/{project['id']}/items/bulk",
+        json={"items": [{"payload": {"text": t}} for t in ("a", "b", "c")]},
+        headers=auth_headers,
+    )
+    item_ids = [
+        i["id"]
+        for i in client.get(
+            f"/api/v1/projects/{project['id']}/items", headers=auth_headers
+        ).json()["items"]
+    ]
+    full_kps = [[i * 10, i * 10, 2] for i in range(17)]
+    for iid in item_ids[:2]:
+        client.put(
+            f"/api/v1/items/{iid}/annotation",
+            json={"value": {"keypoints": full_kps}},
+            headers=auth_headers,
+        )
+
+    # Default scope=all returns every item (pending included).
+    all_rows = json.loads(
+        client.get(
+            f"/api/v1/projects/{project['id']}/export?format=json", headers=auth_headers
+        ).content
+    )
+    assert len(all_rows) == 3
+    assert any(r["annotation"] is None for r in all_rows)
+
+    # scope=annotated drops the unannotated one.
+    only = json.loads(
+        client.get(
+            f"/api/v1/projects/{project['id']}/export?format=json&scope=annotated",
+            headers=auth_headers,
+        ).content
+    )
+    assert len(only) == 2
+    assert all(r["annotation"] is not None for r in only)
+
+    # Filename carries the scope tag for user clarity.
+    r = client.get(
+        f"/api/v1/projects/{project['id']}/export?format=csv&scope=annotated",
+        headers=auth_headers,
+    )
+    assert "_annotated.csv" in r.headers["content-disposition"]
+
+
 def test_pose_item_stays_in_progress_until_all_17_keypoints(
     client, auth_headers, project
 ):

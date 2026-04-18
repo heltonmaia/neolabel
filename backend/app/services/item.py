@@ -336,44 +336,50 @@ def build_yolo_export(project_id: int) -> tuple[BinaryIO, int]:
     return spooled, size
 
 
-def _iter_export_rows(project_id: int) -> Iterator[dict]:
+def _iter_export_rows(project_id: int, annotated_only: bool = False) -> Iterator[dict]:
     """Shared row source for JSON/JSONL/CSV — yields one row at a time so the
-    caller can stream without materializing the whole list."""
+    caller can stream without materializing the whole list. When
+    `annotated_only` is True, items without an annotation record are
+    skipped entirely (as opposed to the default which emits them with
+    `annotation: null`)."""
     items = storage.list_items(project_id)
     anns = {a["item_id"]: a for a in storage.list_annotations_for_project(project_id)}
     for i in items:
+        ann_value = anns.get(i["id"], {}).get("value") if i["id"] in anns else None
+        if annotated_only and ann_value is None:
+            continue
         yield {
             "id": i["id"],
             "payload": i["payload"],
             "status": i["status"],
-            "annotation": anns.get(i["id"], {}).get("value") if i["id"] in anns else None,
+            "annotation": ann_value,
         }
 
 
-def iter_export_json(project_id: int) -> Iterator[bytes]:
+def iter_export_json(project_id: int, annotated_only: bool = False) -> Iterator[bytes]:
     """Stream a JSON array one element at a time — no backend buffering."""
     yield b"["
     first = True
-    for row in _iter_export_rows(project_id):
+    for row in _iter_export_rows(project_id, annotated_only):
         prefix = b"" if first else b","
         first = False
         yield prefix + json.dumps(row, default=str, ensure_ascii=False).encode("utf-8")
     yield b"]"
 
 
-def iter_export_jsonl(project_id: int) -> Iterator[bytes]:
-    for row in _iter_export_rows(project_id):
+def iter_export_jsonl(project_id: int, annotated_only: bool = False) -> Iterator[bytes]:
+    for row in _iter_export_rows(project_id, annotated_only):
         yield (json.dumps(row, default=str, ensure_ascii=False) + "\n").encode("utf-8")
 
 
-def iter_export_csv(project_id: int) -> Iterator[bytes]:
+def iter_export_csv(project_id: int, annotated_only: bool = False) -> Iterator[bytes]:
     buf = io.StringIO()
     writer = csv.writer(buf)
     writer.writerow(["id", "payload", "status", "annotation"])
     yield buf.getvalue().encode("utf-8")
     buf.seek(0)
     buf.truncate()
-    for r in _iter_export_rows(project_id):
+    for r in _iter_export_rows(project_id, annotated_only):
         writer.writerow(
             [
                 r["id"],

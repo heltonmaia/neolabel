@@ -145,9 +145,13 @@ def export_project(
     project_id: int,
     current_user: CurrentUser,
     format: str = Query("json", pattern="^(json|jsonl|csv|yolo)$"),
+    scope: str = Query("all", pattern="^(all|annotated)$"),
 ) -> Response:
     _require_project_for_owner(project_id, current_user)
+    annotated_only = scope == "annotated"
 
+    # YOLO is always annotated-only — unannotated frames have no labels to write.
+    # The `scope` param is accepted but ignored for this format.
     if format == "yolo":
         stream, size = item_service.build_yolo_export(project_id)
 
@@ -172,20 +176,29 @@ def export_project(
             },
         )
 
+    # Filename suffix makes the scope obvious at a glance in the user's downloads folder.
+    tag = "_annotated" if annotated_only else ""
+
     if format == "json":
         return StreamingResponse(
-            item_service.iter_export_json(project_id),
+            item_service.iter_export_json(project_id, annotated_only),
             media_type="application/json",
-            headers={"Content-Disposition": f'attachment; filename="project_{project_id}.json"'},
+            headers={
+                "Content-Disposition": f'attachment; filename="project_{project_id}{tag}.json"'
+            },
         )
     if format == "jsonl":
         return StreamingResponse(
-            item_service.iter_export_jsonl(project_id),
+            item_service.iter_export_jsonl(project_id, annotated_only),
             media_type="application/x-ndjson",
-            headers={"Content-Disposition": f'attachment; filename="project_{project_id}.jsonl"'},
+            headers={
+                "Content-Disposition": f'attachment; filename="project_{project_id}{tag}.jsonl"'
+            },
         )
     return StreamingResponse(
-        item_service.iter_export_csv(project_id),
+        item_service.iter_export_csv(project_id, annotated_only),
         media_type="text/csv",
-        headers={"Content-Disposition": f'attachment; filename="project_{project_id}.csv"'},
+        headers={
+            "Content-Disposition": f'attachment; filename="project_{project_id}{tag}.csv"'
+        },
     )

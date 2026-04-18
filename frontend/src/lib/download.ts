@@ -12,13 +12,19 @@ export interface DownloadOptions {
   signal?: AbortSignal;
 }
 
+export type ExportFormat = 'json' | 'jsonl' | 'csv' | 'yolo';
+// 'all' = every item (pending rows carry annotation: null);
+// 'annotated' = only rows with an annotation record. Ignored server-side for YOLO.
+export type ExportScope = 'all' | 'annotated';
+
 export async function downloadExport(
   projectId: number,
-  format: 'json' | 'jsonl' | 'csv' | 'yolo',
+  format: ExportFormat,
+  scope: ExportScope = 'all',
   opts?: DownloadOptions,
 ) {
   const res = await api.get(`/projects/${projectId}/export`, {
-    params: { format },
+    params: { format, scope },
     responseType: 'blob',
     signal: opts?.signal,
     onDownloadProgress: (e) => {
@@ -30,8 +36,11 @@ export async function downloadExport(
   const url = URL.createObjectURL(res.data);
   const a = document.createElement('a');
   a.href = url;
+  const tag = scope === 'annotated' && format !== 'yolo' ? '_annotated' : '';
   a.download =
-    format === 'yolo' ? `project_${projectId}_yolo.zip` : `project_${projectId}.${format}`;
+    format === 'yolo'
+      ? `project_${projectId}_yolo.zip`
+      : `project_${projectId}${tag}.${format}`;
   a.click();
   URL.revokeObjectURL(url);
 }

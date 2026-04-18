@@ -119,8 +119,12 @@ user does not own returns **404** (to avoid leaking existence), with
 - `DELETE /items/{id}/annotation` — clear annotation, keep item
 - `DELETE /items/{id}` — admin/owner only
 - `POST   /projects/{id}/items/delete-annotated` — admin-only bulk
-- `GET    /projects/{id}/export?format=json|jsonl|csv|yolo` —
-  YOLO returns a ZIP of the Ultralytics layout (pose projects)
+- `GET    /projects/{id}/export?format=json|jsonl|csv|yolo&scope=all|annotated` —
+  streams the export. `scope` defaults to `all` (includes pending items
+  with `annotation: null` in text formats); `scope=annotated` filters
+  them out. YOLO always exports annotated frames only (scope is
+  accepted but ignored). Filenames carry an `_annotated` suffix when
+  scope is restricted. YOLO returns a ZIP of the Ultralytics layout
 
 ### Videos (pose projects)
 - `POST   /projects/{id}/videos` — admin-only; form(`file`, `fps`,

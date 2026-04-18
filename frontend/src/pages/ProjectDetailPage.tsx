@@ -76,6 +76,7 @@ export default function ProjectDetailPage() {
   }, [videoPreviewUrl]);
   const [exportOpen, setExportOpen] = useState(false);
   const [exportFormat, setExportFormat] = useState<'json' | 'jsonl' | 'csv' | 'yolo'>('json');
+  const [exportScope, setExportScope] = useState<'all' | 'annotated'>('all');
   const [exportProgress, setExportProgress] = useState<
     | null
     | { format: 'json' | 'jsonl' | 'csv' | 'yolo'; loaded: number; total: number | null }
@@ -84,12 +85,13 @@ export default function ProjectDetailPage() {
 
   async function handleExport() {
     const fmt = exportFormat;
+    const scope = exportScope;
     const controller = new AbortController();
     exportAbortRef.current = controller;
     setExportProgress({ format: fmt, loaded: 0, total: null });
     setExportOpen(false);
     try {
-      await downloadExport(projectId, fmt, {
+      await downloadExport(projectId, fmt, scope, {
         signal: controller.signal,
         onProgress: (p) => setExportProgress({ format: fmt, loaded: p.loaded, total: p.total }),
       });
@@ -319,6 +321,39 @@ export default function ProjectDetailPage() {
                   </span>
                 </label>
               ))}
+              {exportFormat !== 'yolo' && (
+                <>
+                  <p className="text-xs font-medium text-slate-500 uppercase tracking-wide pt-1">
+                    Scope
+                  </p>
+                  {(
+                    [
+                      { v: 'all', label: 'All items', hint: 'includes pending / unannotated' },
+                      { v: 'annotated', label: 'Annotated only', hint: 'skip items with no annotation' },
+                    ] as const
+                  ).map((opt) => (
+                    <label
+                      key={opt.v}
+                      className={`flex items-start gap-2 p-2 rounded cursor-pointer text-sm ${
+                        exportScope === opt.v ? 'bg-blue-50 ring-1 ring-blue-300' : 'hover:bg-slate-50'
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="export-scope"
+                        value={opt.v}
+                        checked={exportScope === opt.v}
+                        onChange={() => setExportScope(opt.v)}
+                        className="mt-0.5"
+                      />
+                      <span>
+                        <span className="font-medium">{opt.label}</span>
+                        <span className="block text-xs text-slate-500">{opt.hint}</span>
+                      </span>
+                    </label>
+                  ))}
+                </>
+              )}
               <button
                 onClick={handleExport}
                 disabled={!!exportProgress}
