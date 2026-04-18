@@ -175,54 +175,6 @@ def test_export_csv(client, auth_headers, project):
     assert r.text.splitlines()[0] == "id,payload,status,annotation"
 
 
-def test_export_scope_filters_unannotated(client, auth_headers, project):
-    # Three items: two annotated, one pending.
-    client.post(
-        f"/api/v1/projects/{project['id']}/items/bulk",
-        json={"items": [{"payload": {"text": t}} for t in ("a", "b", "c")]},
-        headers=auth_headers,
-    )
-    item_ids = [
-        i["id"]
-        for i in client.get(
-            f"/api/v1/projects/{project['id']}/items", headers=auth_headers
-        ).json()["items"]
-    ]
-    full_kps = [[i * 10, i * 10, 2] for i in range(17)]
-    for iid in item_ids[:2]:
-        client.put(
-            f"/api/v1/items/{iid}/annotation",
-            json={"value": {"keypoints": full_kps}},
-            headers=auth_headers,
-        )
-
-    # Default scope=all returns every item (pending included).
-    all_rows = json.loads(
-        client.get(
-            f"/api/v1/projects/{project['id']}/export?format=json", headers=auth_headers
-        ).content
-    )
-    assert len(all_rows) == 3
-    assert any(r["annotation"] is None for r in all_rows)
-
-    # scope=annotated drops the unannotated one.
-    only = json.loads(
-        client.get(
-            f"/api/v1/projects/{project['id']}/export?format=json&scope=annotated",
-            headers=auth_headers,
-        ).content
-    )
-    assert len(only) == 2
-    assert all(r["annotation"] is not None for r in only)
-
-    # Filename carries the scope tag for user clarity.
-    r = client.get(
-        f"/api/v1/projects/{project['id']}/export?format=csv&scope=annotated",
-        headers=auth_headers,
-    )
-    assert "_annotated.csv" in r.headers["content-disposition"]
-
-
 def test_pose_item_stays_in_progress_until_all_17_keypoints(
     client, auth_headers, project
 ):
@@ -354,7 +306,6 @@ def test_export_bundle_ships_annotations_and_images(client, auth_headers, projec
         headers=auth_headers,
     )
 
-    # scope=all bundles both items + both images
     r = client.get(
         f"/api/v1/projects/{project['id']}/export?format=bundle",
         headers=auth_headers,
@@ -368,28 +319,19 @@ def test_export_bundle_ships_annotations_and_images(client, auth_headers, projec
     assert "annotations.json" in names
     assert "README.txt" in names
     image_entries = [n for n in names if n.startswith("images/")]
+    # Both frames ship even though only one item is annotated — the bundle
+    # is a full project snapshot, not a training dataset.
     assert len(image_entries) == 2
 
     rows = json.loads(zf.read("annotations.json"))
     assert len(rows) == 2
+    assert any(r_["annotation"] is None for r_ in rows)
     # image_url is rewritten to the archive-relative path so the bundle is
     # self-contained and portable.
     for r_ in rows:
         url = r_["payload"]["image_url"]
         assert url.startswith("images/")
         assert url in names
-
-    # scope=annotated drops the pending row AND its image.
-    r2 = client.get(
-        f"/api/v1/projects/{project['id']}/export?format=bundle&scope=annotated",
-        headers=auth_headers,
-    )
-    zf2 = zipfile.ZipFile(io.BytesIO(r2.content))
-    rows2 = json.loads(zf2.read("annotations.json"))
-    assert len(rows2) == 1
-    image_entries2 = [n for n in zf2.namelist() if n.startswith("images/")]
-    assert len(image_entries2) == 1
-    assert "_bundle_annotated.zip" in r2.headers["content-disposition"]
 
 
 def test_clear_annotation_resets_status(client, auth_headers, project):

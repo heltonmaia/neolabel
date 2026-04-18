@@ -336,9 +336,7 @@ def build_yolo_export(project_id: int) -> tuple[BinaryIO, int]:
     return spooled, size
 
 
-def build_bundle_export(
-    project_id: int, annotated_only: bool = False
-) -> tuple[BinaryIO, int]:
+def build_bundle_export(project_id: int) -> tuple[BinaryIO, int]:
     """Build a self-contained ZIP with annotations.json + source images.
 
     Structure:
@@ -363,8 +361,6 @@ def build_bundle_export(
     with zipfile.ZipFile(spooled, "w", zipfile.ZIP_DEFLATED) as zf:
         for item in items:
             ann_value = anns.get(item["id"], {}).get("value") if item["id"] in anns else None
-            if annotated_only and ann_value is None:
-                continue
             payload = dict(item.get("payload") or {})
             image_url = payload.get("image_url")
             if isinstance(image_url, str) and image_url.startswith("/files/"):
@@ -394,8 +390,7 @@ def build_bundle_export(
             "README.txt",
             f"Neo-Label full bundle\n"
             f"Project: {project_id}\n"
-            f"Items: {len(rows)} "
-            f"({'annotated only' if annotated_only else 'all items'})\n"
+            f"Items: {len(rows)}\n"
             f"Images included: {included_images}\n"
             f"\nannotations.json is a JSON array, one record per item.\n"
             f"Each payload.image_url is a path relative to this archive\n"
@@ -408,50 +403,45 @@ def build_bundle_export(
     return spooled, size
 
 
-def _iter_export_rows(project_id: int, annotated_only: bool = False) -> Iterator[dict]:
+def _iter_export_rows(project_id: int) -> Iterator[dict]:
     """Shared row source for JSON/JSONL/CSV — yields one row at a time so the
-    caller can stream without materializing the whole list. When
-    `annotated_only` is True, items without an annotation record are
-    skipped entirely (as opposed to the default which emits them with
-    `annotation: null`)."""
+    caller can stream without materializing the whole list. Pending items
+    are emitted with `annotation: null`; filtering is downstream."""
     items = storage.list_items(project_id)
     anns = {a["item_id"]: a for a in storage.list_annotations_for_project(project_id)}
     for i in items:
-        ann_value = anns.get(i["id"], {}).get("value") if i["id"] in anns else None
-        if annotated_only and ann_value is None:
-            continue
         yield {
             "id": i["id"],
             "payload": i["payload"],
             "status": i["status"],
-            "annotation": ann_value,
+            "annotation": anns.get(i["id"], {}).get("value") if i["id"] in anns else None,
         }
 
 
-def iter_export_json(project_id: int, annotated_only: bool = False) -> Iterator[bytes]:
+def iter_export_json(project_id: int) -> Iterator[bytes]:
     """Stream a JSON array one element at a time — no backend buffering."""
     yield b"["
     first = True
-    for row in _iter_export_rows(project_id, annotated_only):
+    for row in _iter_export_rows(project_id):
         prefix = b"" if first else b","
         first = False
         yield prefix + json.dumps(row, default=str, ensure_ascii=False).encode("utf-8")
     yield b"]"
 
 
-def iter_export_jsonl(project_id: int, annotated_only: bool = False) -> Iterator[bytes]:
-    for row in _iter_export_rows(project_id, annotated_only):
+def iter_export_jsonl(project_id: int) -> Iterator[bytes]:
+    for row in _iter_export_rows(project_id):
         yield (json.dumps(row, default=str, ensure_ascii=False) + "\n").encode("utf-8")
 
 
-def iter_export_csv(project_id: int, annotated_only: bool = False) -> Iterator[bytes]:
+def iter_export_csv(project_id: int) -> Iterator[bytes]:
     buf = io.StringIO()
     writer = csv.writer(buf)
     writer.writerow(["id", "payload", "status", "annotation"])
     yield buf.getvalue().encode("utf-8")
     buf.seek(0)
     buf.truncate()
-    for r in _iter_export_rows(project_id, annotated_only):
+    for r in _iter_export_rows(project_id):
         writer.writerow(
             [
                 r["id"],
