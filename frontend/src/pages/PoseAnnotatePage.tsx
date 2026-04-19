@@ -107,57 +107,71 @@ export default function PoseAnnotatePage() {
   // Tracks the last item the template was auto-applied to, so toggling or
   // refetching prev doesn't re-apply after the user started editing.
   const appliedTemplateRef = useRef<number | null>(null);
-  const keypointsRef = useRef<KeypointsMap>(keypoints);
-  useEffect(() => {
-    keypointsRef.current = keypoints;
-  }, [keypoints]);
 
+  // Single effect — decides between existing annotation, template, or empty
+  // in one pass so there's no race between a "reset" and "apply template"
+  // step. Re-runs whenever the relevant inputs stabilise (item change,
+  // template toggle, previous-frame data loading in).
   useEffect(() => {
-    const existing = itemQ.data?.annotation?.value as
-      | { keypoints?: KeypointValue[] }
-      | undefined;
-    const hasPlaced =
-      !!existing?.keypoints
-      && existing.keypoints.length === 17
-      && existing.keypoints.some((v) => v[2] > 0);
-    if (hasPlaced) {
+    // Wait until the query has actually loaded this item.
+    if (itemQ.data?.id !== currentItemId) return;
+
+    // If this frame has ANY saved annotation record, load it as-is —
+    // never let the template overwrite work that was previously saved
+    // here, including an empty annotation left by "clear all".
+    if (itemQ.data.annotation) {
+      const existing = itemQ.data.annotation.value as
+        | { keypoints?: KeypointValue[] }
+        | undefined;
       const m: KeypointsMap = {};
-      existing!.keypoints!.forEach((v, i) => {
-        m[i] = v[2] > 0 ? v : null;
-      });
+      for (const kp of COCO_KEYPOINTS) m[kp.id] = null;
+      if (existing?.keypoints && existing.keypoints.length === 17) {
+        existing.keypoints.forEach((v, i) => {
+          m[i] = v[2] > 0 ? v : null;
+        });
+      }
       setKeypoints(m);
-    } else {
-      setKeypoints(emptyKeypoints());
+      historyRef.current = [];
+      setCurrentKp(sequence[0]);
+      appliedTemplateRef.current = null;
+      return;
     }
+
+    // No annotation on this frame yet — try the template.
+    if (
+      useTemplate
+      && prev
+      && prevItemQ.data?.id === prev.id
+      && appliedTemplateRef.current !== currentItemId
+    ) {
+      const tmpl = (prevItemQ.data?.annotation?.value as
+        | { keypoints?: KeypointValue[] }
+        | undefined)?.keypoints;
+      if (
+        tmpl
+        && tmpl.length === 17
+        && tmpl.some((v) => v[2] > 0)
+      ) {
+        const m: KeypointsMap = {};
+        tmpl.forEach((v, i) => {
+          m[i] = v[2] > 0 ? v : null;
+        });
+        setKeypoints(m);
+        save.mutate(m);
+        historyRef.current = [];
+        setCurrentKp(sequence[0]);
+        appliedTemplateRef.current = currentItemId;
+        return;
+      }
+    }
+
+    // Fall-through: fresh empty state.
+    setKeypoints(emptyKeypoints());
     historyRef.current = [];
     setCurrentKp(sequence[0]);
     appliedTemplateRef.current = null;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentItemId, itemQ.data?.id]);
-
-  // Apply previous-frame pose once per item, only when current is empty.
-  useEffect(() => {
-    if (!useTemplate || !prev) return;
-    if (appliedTemplateRef.current === currentItemId) return;
-    if (itemQ.data?.id !== currentItemId) return; // wait for the real item to load
-    const hasAnyPlaced = Object.values(keypointsRef.current).some(
-      (v) => v && v[2] > 0,
-    );
-    if (hasAnyPlaced) return;
-    const tmpl = (prevItemQ.data?.annotation?.value as
-      | { keypoints?: KeypointValue[] }
-      | undefined)?.keypoints;
-    if (!tmpl || tmpl.length !== 17) return;
-    const m: KeypointsMap = {};
-    tmpl.forEach((v, i) => {
-      m[i] = v[2] > 0 ? v : null;
-    });
-    if (!Object.values(m).some((v) => v && v[2] > 0)) return;
-    appliedTemplateRef.current = currentItemId;
-    setKeypoints(m);
-    save.mutate(m);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [useTemplate, prev?.id, prevItemQ.data?.id, currentItemId, itemQ.data?.id]);
+  }, [currentItemId, itemQ.data?.id, useTemplate, prev?.id, prevItemQ.data?.id]);
 
   function pushHistory() {
     historyRef.current.push({ ...keypoints });
@@ -300,6 +314,7 @@ export default function PoseAnnotatePage() {
   const imageUrl = (item.payload as { image_url?: string }).image_url;
   const fullUrl = imageUrl ? `${FILES_BASE}${imageUrl}` : null;
   const doneCount = Object.values(keypoints).filter((v) => v && v[2] > 0).length;
+  const isComplete = doneCount === 17;
 
   return (
     <div className="max-w-7xl mx-auto p-4 space-y-4">
@@ -307,8 +322,18 @@ export default function PoseAnnotatePage() {
         <Link to={`/projects/${projectId}`} className="text-sm text-blue-600 hover:underline">
           ← {project.name}
         </Link>
-        <span className="text-sm text-slate-500">
-          {idx >= 0 ? `${idx + 1} / ${items.length}` : ''} · {doneCount}/17 keypoints
+        <span className="text-sm text-slate-500 flex items-center gap-2">
+          {idx >= 0 ? `${idx + 1} / ${items.length}` : ''} ·
+          <span
+            className={
+              'px-2 py-0.5 rounded-full font-semibold ' +
+              (isComplete
+                ? 'bg-emerald-100 text-emerald-700'
+                : 'text-slate-500')
+            }
+          >
+            {doneCount}/17 keypoints {isComplete && '✓'}
+          </span>
         </span>
       </header>
 
@@ -465,19 +490,44 @@ export default function PoseAnnotatePage() {
         </div>
 
         {/* Avatar + controls */}
-        <aside className="bg-white rounded-lg shadow p-4 space-y-4">
-          <div className="flex items-baseline justify-between">
-            <div>
-              <p className="text-xs text-slate-500 uppercase tracking-wide">Next keypoint</p>
-              <p className="text-lg font-semibold">
-                <span className="inline-block bg-red-500 text-white rounded px-2 mr-2 text-sm">
-                  {currentKp + 1}
-                </span>
-                {COCO_KEYPOINTS[currentKp].label}
-              </p>
+        <aside
+          className={
+            'bg-white rounded-lg shadow p-4 space-y-4 transition-colors '
+            + (isComplete ? 'ring-2 ring-emerald-400' : '')
+          }
+        >
+          {isComplete ? (
+            <div className="flex items-center gap-3 bg-emerald-50 border border-emerald-200 rounded px-3 py-2">
+              <span className="flex-none w-8 h-8 rounded-full bg-emerald-500 text-white flex items-center justify-center text-lg font-bold">
+                ✓
+              </span>
+              <div className="flex-1">
+                <p className="text-sm font-semibold text-emerald-800">
+                  All 17 keypoints placed
+                </p>
+                <p className="text-xs text-emerald-700">
+                  Drag any point to adjust, or press{' '}
+                  <kbd className="border border-emerald-300 rounded px-1 bg-white">
+                    ]
+                  </kbd>{' '}
+                  for the next frame.
+                </p>
+              </div>
             </div>
-            <span className="text-sm text-slate-400">{doneCount}/17</span>
-          </div>
+          ) : (
+            <div className="flex items-baseline justify-between">
+              <div>
+                <p className="text-xs text-slate-500 uppercase tracking-wide">Next keypoint</p>
+                <p className="text-lg font-semibold">
+                  <span className="inline-block bg-red-500 text-white rounded px-2 mr-2 text-sm">
+                    {currentKp + 1}
+                  </span>
+                  {COCO_KEYPOINTS[currentKp].label}
+                </p>
+              </div>
+              <span className="text-sm text-slate-400">{doneCount}/17</span>
+            </div>
+          )}
 
           <div className="space-y-1">
             <p className="text-xs text-slate-500 uppercase tracking-wide">Traversal order</p>
@@ -514,9 +564,10 @@ export default function PoseAnnotatePage() {
             <span>
               <span className="font-medium">Reuse previous pose</span>
               <span className="block text-slate-500">
-                New frames start with the previous frame's keypoints — drag any
-                point to adjust. Ignored on frames that already have an
-                annotation.
+                Applied only to frames with no saved annotation yet — drag any
+                point to adjust. Frames that were already annotated (or
+                cleared) are never overwritten, so navigating back and forth
+                is safe.
               </span>
             </span>
           </label>
@@ -528,21 +579,54 @@ export default function PoseAnnotatePage() {
           />
 
           <div className="grid grid-cols-2 gap-2 text-sm">
-            <button onClick={markOccluded}
-              className="border rounded px-2 py-1.5 hover:bg-slate-50">
-              Occluded <kbd className="text-xs border rounded px-1 ml-1">right-click</kbd>
+            <button
+              onClick={() => prev && navigate(`/projects/${projectId}/annotate/${prev.id}`)}
+              disabled={!prev}
+              className="inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-md bg-slate-800 text-white font-medium shadow-sm hover:bg-slate-900 active:translate-y-px disabled:bg-slate-200 disabled:text-slate-400 disabled:shadow-none disabled:cursor-not-allowed transition"
+            >
+              <span aria-hidden>←</span>
+              <span>Previous</span>
+              <kbd className="ml-0.5 text-[10px] border border-white/30 bg-white/10 rounded px-1 font-mono">[</kbd>
             </button>
-            <button onClick={undo}
-              className="border rounded px-2 py-1.5 hover:bg-slate-50">
-              Undo <kbd className="text-xs border rounded px-1 ml-1">U</kbd>
+            <button
+              onClick={() => next && navigate(`/projects/${projectId}/annotate/${next.id}`)}
+              disabled={!next}
+              className="inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-md bg-slate-800 text-white font-medium shadow-sm hover:bg-slate-900 active:translate-y-px disabled:bg-slate-200 disabled:text-slate-400 disabled:shadow-none disabled:cursor-not-allowed transition"
+            >
+              <kbd className="mr-0.5 text-[10px] border border-white/30 bg-white/10 rounded px-1 font-mono">]</kbd>
+              <span>Next</span>
+              <span aria-hidden>→</span>
             </button>
-            <button onClick={clearCurrent}
-              className="border rounded px-2 py-1.5 hover:bg-slate-50">
-              Clear point <kbd className="text-xs border rounded px-1 ml-1">⌫</kbd>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2 text-sm">
+            <button
+              onClick={markOccluded}
+              className="inline-flex items-center justify-center gap-1.5 px-2 py-2 rounded-md border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 hover:border-slate-400 transition"
+            >
+              Occluded
+              <kbd className="text-[10px] border border-slate-300 rounded px-1 bg-slate-50 font-mono">right-click</kbd>
             </button>
-            <button onClick={clearAll}
-              className="border rounded px-2 py-1.5 text-red-600 hover:bg-red-50">
-              Clear all <kbd className="text-xs border rounded px-1 ml-1">C</kbd>
+            <button
+              onClick={undo}
+              className="inline-flex items-center justify-center gap-1.5 px-2 py-2 rounded-md border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 hover:border-slate-400 transition"
+            >
+              Undo
+              <kbd className="text-[10px] border border-slate-300 rounded px-1 bg-slate-50 font-mono">U</kbd>
+            </button>
+            <button
+              onClick={clearCurrent}
+              className="inline-flex items-center justify-center gap-1.5 px-2 py-2 rounded-md border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 hover:border-slate-400 transition"
+            >
+              Clear point
+              <kbd className="text-[10px] border border-slate-300 rounded px-1 bg-slate-50 font-mono">⌫</kbd>
+            </button>
+            <button
+              onClick={clearAll}
+              className="inline-flex items-center justify-center gap-1.5 px-2 py-2 rounded-md border border-red-200 bg-white text-red-600 hover:bg-red-50 hover:border-red-300 transition"
+            >
+              Clear all
+              <kbd className="text-[10px] border border-red-200 rounded px-1 bg-red-50 font-mono">C</kbd>
             </button>
           </div>
 
@@ -563,23 +647,6 @@ export default function PoseAnnotatePage() {
           </details>
         </aside>
       </div>
-
-      <footer className="flex items-center justify-between text-sm">
-        <button
-          onClick={() => prev && navigate(`/projects/${projectId}/annotate/${prev.id}`)}
-          disabled={!prev}
-          className="px-3 py-1.5 border rounded disabled:opacity-40"
-        >
-          ← Previous <kbd className="ml-1 text-xs border rounded px-1">[</kbd>
-        </button>
-        <button
-          onClick={() => next && navigate(`/projects/${projectId}/annotate/${next.id}`)}
-          disabled={!next}
-          className="px-3 py-1.5 border rounded disabled:opacity-40"
-        >
-          <kbd className="mr-1 text-xs border rounded px-1">]</kbd> Next →
-        </button>
-      </footer>
     </div>
   );
 }
