@@ -18,7 +18,8 @@ import {
   type ItemStatus,
 } from '@/api/items';
 import { listUsers } from '@/api/users';
-import { deleteVideo, listVideos, reassignVideo, uploadVideo } from '@/api/videos';
+import { deleteVideo, importCocoPose, listVideos, reassignVideo, uploadVideo } from '@/api/videos';
+import type { CocoImportResult, ResizeMode } from '@/api/videos';
 import { downloadExport } from '@/lib/download';
 import { FILES_BASE } from '@/lib/env';
 import { useConfirm } from '@/components/ui/ConfirmDialog';
@@ -65,7 +66,11 @@ export default function ProjectDetailPage() {
   const [videoAssignee, setVideoAssignee] = useState<number | ''>('');
   const [videoDuration, setVideoDuration] = useState<number | null>(null);
   const [videoRotation, setVideoRotation] = useState<0 | 90 | 180 | 270>(0);
+  const [videoResizeMode, setVideoResizeMode] = useState<ResizeMode>('pad');
   const [isDragging, setIsDragging] = useState(false);
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [importAssignee, setImportAssignee] = useState<number | ''>('');
+  const [importResult, setImportResult] = useState<CocoImportResult | null>(null);
   const videoPreviewUrl = useMemo(
     () => (videoFile ? URL.createObjectURL(videoFile) : null),
     [videoFile],
@@ -172,10 +177,26 @@ export default function ProjectDetailPage() {
         videoFps,
         videoAssignee === '' ? null : videoAssignee,
         videoRotation,
+        videoResizeMode,
       ),
     onSuccess: () => {
       setVideoFile(null);
       setVideoRotation(0);
+      qc.invalidateQueries({ queryKey: ['items', projectId] });
+      qc.invalidateQueries({ queryKey: ['videos', projectId] });
+    },
+  });
+
+  const cocoImport = useMutation({
+    mutationFn: () =>
+      importCocoPose(
+        projectId,
+        importFile!,
+        importAssignee === '' ? null : importAssignee,
+      ),
+    onSuccess: (data) => {
+      setImportResult(data);
+      setImportFile(null);
       qc.invalidateQueries({ queryKey: ['items', projectId] });
       qc.invalidateQueries({ queryKey: ['videos', projectId] });
     },
@@ -425,14 +446,32 @@ export default function ProjectDetailPage() {
       {/* Upload */}
       {isPose ? (
         isAdmin ? (
-        <section className="bg-white p-4 rounded-lg shadow space-y-4">
-          <div>
-            <h2 className="font-semibold">Upload video</h2>
-            <p className="text-xs text-slate-500">
-              Pick a video and an FPS. Assigning to an annotator is optional —
-              leave unassigned to keep frames in the admin pool.
-            </p>
-          </div>
+        <section className="bg-white rounded-lg shadow">
+          <details className="group">
+            <summary className="flex items-center justify-between gap-3 cursor-pointer px-4 py-3 select-none hover:bg-slate-50 rounded-lg">
+              <div className="min-w-0">
+                <h2 className="font-semibold">Upload video</h2>
+                <p className="text-xs text-slate-500">
+                  Pick a video and an FPS. Assigning to an annotator is optional —
+                  leave unassigned to keep frames in the admin pool.
+                </p>
+              </div>
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className="shrink-0 text-slate-400 transition-transform group-open:rotate-180"
+              >
+                <polyline points="6 9 12 15 18 9" />
+              </svg>
+            </summary>
+            <div className="px-4 pb-4 pt-3 border-t space-y-4">
 
           {/* Drop zone / preview */}
           {!videoFile ? (
@@ -639,6 +678,59 @@ export default function ProjectDetailPage() {
             </div>
           </div>
 
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-slate-600 uppercase tracking-wide">
+              Resize to 640 × 640
+            </label>
+            <div className="grid sm:grid-cols-2 gap-2">
+              <label
+                className={`flex items-start gap-2 border rounded px-3 py-2 cursor-pointer text-sm ${
+                  videoResizeMode === 'pad'
+                    ? 'border-blue-500 bg-blue-50'
+                    : 'border-slate-200 hover:bg-slate-50'
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="resize-mode"
+                  value="pad"
+                  checked={videoResizeMode === 'pad'}
+                  onChange={() => setVideoResizeMode('pad')}
+                  className="mt-0.5"
+                />
+                <span>
+                  <span className="font-medium">Keep aspect ratio</span>{' '}
+                  <span className="text-xs text-emerald-700">(recommended)</span>
+                  <span className="block text-xs text-slate-500">
+                    Letterbox with black bars — no distortion.
+                  </span>
+                </span>
+              </label>
+              <label
+                className={`flex items-start gap-2 border rounded px-3 py-2 cursor-pointer text-sm ${
+                  videoResizeMode === 'stretch'
+                    ? 'border-blue-500 bg-blue-50'
+                    : 'border-slate-200 hover:bg-slate-50'
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="resize-mode"
+                  value="stretch"
+                  checked={videoResizeMode === 'stretch'}
+                  onChange={() => setVideoResizeMode('stretch')}
+                  className="mt-0.5"
+                />
+                <span>
+                  <span className="font-medium">Stretch</span>
+                  <span className="block text-xs text-slate-500">
+                    Fill the frame — distorts non-square sources.
+                  </span>
+                </span>
+              </label>
+            </div>
+          </div>
+
           <details className="text-sm bg-slate-50 border rounded">
             <summary className="cursor-pointer px-3 py-2 font-medium text-slate-700 hover:bg-slate-100 select-none">
               What is FPS?{' '}
@@ -721,14 +813,188 @@ export default function ProjectDetailPage() {
               {(videoUpload.error as any)?.response?.data?.detail ?? 'Upload failed'}
             </p>
           )}
-          {videoUpload.data && (
-            <p className="text-sm text-emerald-700">
-              Extracted {videoUpload.data.frames} frames from {videoUpload.data.video}.
-            </p>
-          )}
+          {videoUpload.data && (() => {
+            const d = videoUpload.data;
+            const dur = d.duration_s;
+            const exp = d.expected_frames;
+            const off =
+              exp !== null && exp > 0
+                ? Math.abs(d.frames - exp) / exp
+                : 0;
+            const mismatch = exp !== null && off > 0.1 && Math.abs(d.frames - exp) > 1;
+            return (
+              <div className="text-sm space-y-0.5">
+                <p className={mismatch ? 'text-amber-700' : 'text-emerald-700'}>
+                  Extracted <b>{d.frames}</b> frames from {d.video}
+                  {dur ? ` (${dur.toFixed(1)}s)` : ''}
+                  {exp !== null ? ` — expected ~${exp}` : ''}.
+                </p>
+                {mismatch && (
+                  <p className="text-xs text-amber-600">
+                    Actual count differs from expected — the source video may have
+                    variable framerate or unusual timestamps.
+                  </p>
+                )}
+              </div>
+            );
+          })()}
+            </div>
+          </details>
         </section>
         ) : null
-      ) : (
+      ) : null}
+
+      {/* Import COCO-pose (admin, pose projects) */}
+      {isPose && isAdmin && (
+        <section className="bg-white rounded-lg shadow">
+          <details className="group">
+            <summary className="flex items-center justify-between gap-3 cursor-pointer px-4 py-3 select-none hover:bg-slate-50 rounded-lg">
+              <div className="min-w-0">
+                <h2 className="font-semibold">Import COCO keypoints dataset</h2>
+                <p className="text-xs text-slate-500">
+                  Drop a COCO JSON keypoints ZIP (e.g. Roboflow "COCO JSON" export).
+                  The importer walks for <code>_annotations.coco.json</code> files
+                  and creates one item per image; images referenced by a COCO
+                  annotation are imported as already-annotated (17 keypoints).
+                </p>
+              </div>
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className="shrink-0 text-slate-400 transition-transform group-open:rotate-180"
+              >
+                <polyline points="6 9 12 15 18 9" />
+              </svg>
+            </summary>
+            <div className="px-4 pb-4 pt-3 border-t space-y-4">
+
+          {!importFile ? (
+            <label
+              className="flex flex-col items-center justify-center gap-2 px-6 py-8 border-2 border-dashed border-slate-200 bg-slate-50 rounded-lg cursor-pointer hover:bg-slate-100 hover:border-slate-300 transition-colors"
+            >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                width="28"
+                height="28"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.6"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className="text-slate-400"
+              >
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                <polyline points="17 8 12 3 7 8" />
+                <line x1="12" y1="3" x2="12" y2="15" />
+              </svg>
+              <span className="text-sm font-medium text-slate-700">
+                Click to choose a COCO keypoints ZIP
+              </span>
+              <span className="text-xs text-slate-500">
+                Roboflow "COCO JSON" pose export works directly
+              </span>
+              <input
+                type="file"
+                accept=".zip,application/zip"
+                onChange={(e) => {
+                  setImportFile(e.target.files?.[0] ?? null);
+                  setImportResult(null);
+                }}
+                className="hidden"
+              />
+            </label>
+          ) : (
+            <div className="flex items-center gap-3 p-3 border rounded-lg bg-slate-50">
+              <div className="flex-1 min-w-0">
+                <div className="font-medium truncate" title={importFile.name}>
+                  {importFile.name}
+                </div>
+                <div className="text-xs text-slate-500">
+                  {formatBytes(importFile.size)}
+                </div>
+              </div>
+              <button
+                onClick={() => setImportFile(null)}
+                className="text-xs border rounded px-2 py-1 text-red-600 hover:bg-red-50"
+              >
+                Remove
+              </button>
+            </div>
+          )}
+
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-slate-600 uppercase tracking-wide">
+              Assign to
+            </label>
+            <select
+              value={importAssignee}
+              onChange={(e) =>
+                setImportAssignee(e.target.value ? Number(e.target.value) : '')
+              }
+              className="border rounded px-2 py-1.5 text-sm w-full sm:w-64"
+            >
+              <option value="">— leave unassigned —</option>
+              {(usersQ.data ?? []).map((u) => (
+                <option key={u.id} value={u.id}>
+                  {u.username} ({u.role})
+                </option>
+              ))}
+            </select>
+            <div className="text-xs text-slate-500">
+              Annotations without an assignee are attributed to you, so you can
+              review them as admin.
+            </div>
+          </div>
+
+          <div className="flex items-center justify-end pt-2 border-t">
+            <button
+              onClick={() => cocoImport.mutate()}
+              disabled={!importFile || cocoImport.isPending}
+              className="inline-flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 disabled:opacity-50 text-sm font-medium"
+            >
+              {cocoImport.isPending ? 'Importing…' : 'Import dataset'}
+            </button>
+          </div>
+
+          {cocoImport.isError && (
+            <p className="text-sm text-red-600">
+              {(cocoImport.error as { response?: { data?: { detail?: string } } })
+                ?.response?.data?.detail ?? 'Import failed'}
+            </p>
+          )}
+          {importResult && (
+            <div className="text-sm text-emerald-700 space-y-0.5">
+              <p>
+                Imported <b>{importResult.items_created}</b> frames
+                {' · '}<b>{importResult.annotations_created}</b> with labels
+                {importResult.skipped_images > 0 && (
+                  <>{' · '}<b>{importResult.skipped_images}</b> missing images</>
+                )}
+                {importResult.skipped_labels > 0 && (
+                  <>{' · '}<b>{importResult.skipped_labels}</b> skipped (bad labels)</>
+                )}
+              </p>
+              {importResult.source_videos.length > 0 && (
+                <p className="text-xs text-slate-500">
+                  Grouped under: {importResult.source_videos.join(', ')}
+                </p>
+              )}
+            </div>
+          )}
+            </div>
+          </details>
+        </section>
+      )}
+
+      {isPose ? null : (
         <section className="bg-white p-4 rounded-lg shadow space-y-3">
           <h2 className="font-semibold">Upload items</h2>
           <p className="text-sm text-slate-500">One text per line.</p>
@@ -1035,6 +1301,9 @@ export default function ProjectDetailPage() {
               const imgUrl = (i.payload as { image_url?: string }).image_url;
               const sv = (i.payload as { source_video?: string }).source_video;
               const fi = (i.payload as { frame_index?: number }).frame_index;
+              const w = (i.payload as { width?: number }).width;
+              const h = (i.payload as { height?: number }).height;
+              const size = typeof w === 'number' && typeof h === 'number' ? `${w}×${h}` : null;
               const label = sv ? `${sv} · ${fi}` : `#${i.id}`;
               return (
                 <Link
@@ -1056,6 +1325,9 @@ export default function ProjectDetailPage() {
                   )}
                   <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent text-white text-xs px-2 py-1 space-y-0.5">
                     <div className="truncate">{label}</div>
+                    {size && (
+                      <div className="text-[10px] text-white/70 tabular-nums">{size}</div>
+                    )}
                     {(() => {
                       const name = annotatorLabel(i.assigned_to);
                       return (
@@ -1109,6 +1381,16 @@ export default function ProjectDetailPage() {
                         ? `${(i.payload as any).source_video} · frame ${(i.payload as any).frame_index}`
                         : JSON.stringify(i.payload))}
                   </span>
+                  {(() => {
+                    const w = (i.payload as { width?: number }).width;
+                    const h = (i.payload as { height?: number }).height;
+                    if (typeof w !== 'number' || typeof h !== 'number') return null;
+                    return (
+                      <span className="text-xs text-slate-500 tabular-nums whitespace-nowrap">
+                        {w}×{h}
+                      </span>
+                    );
+                  })()}
                 </Link>
                 {(() => {
                   const name = annotatorLabel(i.assigned_to);

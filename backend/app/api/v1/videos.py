@@ -2,6 +2,7 @@ from fastapi import APIRouter, File, Form, HTTPException, UploadFile, status
 
 from app.core.deps import AdminUser
 from app.schemas.item import ReassignRequest
+from app.services import import_coco as import_coco_service
 from app.services import item as item_service
 from app.services import project as project_service
 from app.services import user as user_service
@@ -36,6 +37,7 @@ async def upload_video(
     fps: float = Form(...),
     assignee_id: int | None = Form(None),
     rotation: int = Form(0),
+    resize_mode: str = Form("pad"),
 ) -> dict:
     _require_project(project_id)
     if assignee_id is not None:
@@ -48,6 +50,7 @@ async def upload_video(
             fps,
             rotation=rotation,
             assignee_id=assignee_id,
+            resize_mode=resize_mode,
         )
     except ValueError as e:
         code = (
@@ -58,6 +61,42 @@ async def upload_video(
         raise HTTPException(code, str(e))
     except RuntimeError as e:
         raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, str(e))
+
+
+@router.post(
+    "/projects/{project_id}/import-coco",
+    status_code=status.HTTP_201_CREATED,
+    tags=["videos"],
+)
+async def import_coco_pose(
+    project_id: int,
+    current_user: AdminUser,
+    file: UploadFile = File(...),
+    assignee_id: int | None = Form(None),
+) -> dict:
+    project = _require_project(project_id)
+    if project.type.value != "pose_detection":
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "COCO-pose import is only available for pose_detection projects",
+        )
+    if assignee_id is not None:
+        _require_user(assignee_id)
+    try:
+        return import_coco_service.import_coco_pose(
+            project_id,
+            file.file,
+            file.filename or "import.zip",
+            uploader_id=current_user.id,
+            assignee_id=assignee_id,
+        )
+    except ValueError as e:
+        code = (
+            status.HTTP_413_REQUEST_ENTITY_TOO_LARGE
+            if "larger than" in str(e).lower()
+            else status.HTTP_400_BAD_REQUEST
+        )
+        raise HTTPException(code, str(e))
 
 
 @router.get("/projects/{project_id}/videos", tags=["videos"])
