@@ -5,6 +5,7 @@ import { getProject } from '@/api/projects';
 import { getItem, listItems, saveAnnotation } from '@/api/items';
 import { FILES_BASE } from '@/lib/env';
 import BabyAvatar from '@/components/BabyAvatar';
+import { useConfirm } from '@/components/ui/ConfirmDialog';
 import {
   COCO_KEYPOINTS,
   ORDERINGS,
@@ -14,7 +15,6 @@ import {
 } from '@/lib/keypoints';
 
 const ORDER_STORAGE_KEY = 'pose.orderMode';
-const TEMPLATE_STORAGE_KEY = 'pose.useTemplate';
 const ORDER_LABEL: Record<OrderMode, string> = {
   top: 'Top → bottom',
   left: 'Left contour',
@@ -56,17 +56,10 @@ export default function PoseAnnotatePage() {
     return saved && saved in ORDERINGS ? (saved as OrderMode) : 'top';
   });
   const sequence = ORDERINGS[orderMode];
-  const [useTemplate, setUseTemplate] = useState<boolean>(() => {
-    return typeof window !== 'undefined'
-      && localStorage.getItem(TEMPLATE_STORAGE_KEY) === '1';
-  });
 
   useEffect(() => {
     localStorage.setItem(ORDER_STORAGE_KEY, orderMode);
   }, [orderMode]);
-  useEffect(() => {
-    localStorage.setItem(TEMPLATE_STORAGE_KEY, useTemplate ? '1' : '0');
-  }, [useTemplate]);
   const historyRef = useRef<KeypointsMap[]>([]);
   const imgRef = useRef<HTMLImageElement>(null);
   const draggingRef = useRef<{ id: number; moved: boolean } | null>(null);
@@ -74,6 +67,8 @@ export default function PoseAnnotatePage() {
   // Keyboard cursor position (as 0-1 percent of image)
   const [cursor, setCursor] = useState<{ x: number; y: number }>({ x: 0.5, y: 0.5 });
   const [keyboardMode, setKeyboardMode] = useState(false);
+
+  const confirm = useConfirm();
 
   const items = itemsQ.data?.items ?? [];
   const idx = useMemo(
@@ -83,12 +78,12 @@ export default function PoseAnnotatePage() {
   const prev = idx > 0 ? items[idx - 1] : null;
   const next = idx >= 0 && idx < items.length - 1 ? items[idx + 1] : null;
 
-  // Only fetched when the template toggle is on — reuses the same cache key
-  // as itemQ, so navigating back already has the data warm.
+  // Kept warm so the "Copy previous pose" button can act instantly.
+  // Reuses the same cache key as itemQ, so backtracking is free.
   const prevItemQ = useQuery({
     queryKey: ['item', prev?.id],
     queryFn: () => getItem(prev!.id),
-    enabled: useTemplate && !!prev,
+    enabled: !!prev,
   });
 
   const save = useMutation({
@@ -104,21 +99,11 @@ export default function PoseAnnotatePage() {
     },
   });
 
-  // Tracks the last item the template was auto-applied to, so toggling or
-  // refetching prev doesn't re-apply after the user started editing.
-  const appliedTemplateRef = useRef<number | null>(null);
-
-  // Single effect — decides between existing annotation, template, or empty
-  // in one pass so there's no race between a "reset" and "apply template"
-  // step. Re-runs whenever the relevant inputs stabilise (item change,
-  // template toggle, previous-frame data loading in).
+  // Load saved annotation (if any) or reset to empty when the item changes.
+  // Template reuse is now manual — see copyPreviousPose below.
   useEffect(() => {
-    // Wait until the query has actually loaded this item.
     if (itemQ.data?.id !== currentItemId) return;
 
-    // If this frame has ANY saved annotation record, load it as-is —
-    // never let the template overwrite work that was previously saved
-    // here, including an empty annotation left by "clear all".
     if (itemQ.data.annotation) {
       const existing = itemQ.data.annotation.value as
         | { keypoints?: KeypointValue[] }
@@ -133,45 +118,14 @@ export default function PoseAnnotatePage() {
       setKeypoints(m);
       historyRef.current = [];
       setCurrentKp(sequence[0]);
-      appliedTemplateRef.current = null;
       return;
     }
 
-    // No annotation on this frame yet — try the template.
-    if (
-      useTemplate
-      && prev
-      && prevItemQ.data?.id === prev.id
-      && appliedTemplateRef.current !== currentItemId
-    ) {
-      const tmpl = (prevItemQ.data?.annotation?.value as
-        | { keypoints?: KeypointValue[] }
-        | undefined)?.keypoints;
-      if (
-        tmpl
-        && tmpl.length === 17
-        && tmpl.some((v) => v[2] > 0)
-      ) {
-        const m: KeypointsMap = {};
-        tmpl.forEach((v, i) => {
-          m[i] = v[2] > 0 ? v : null;
-        });
-        setKeypoints(m);
-        save.mutate(m);
-        historyRef.current = [];
-        setCurrentKp(sequence[0]);
-        appliedTemplateRef.current = currentItemId;
-        return;
-      }
-    }
-
-    // Fall-through: fresh empty state.
     setKeypoints(emptyKeypoints());
     historyRef.current = [];
     setCurrentKp(sequence[0]);
-    appliedTemplateRef.current = null;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentItemId, itemQ.data?.id, useTemplate, prev?.id, prevItemQ.data?.id]);
+  }, [currentItemId, itemQ.data?.id]);
 
   function pushHistory() {
     historyRef.current.push({ ...keypoints });
@@ -249,12 +203,51 @@ export default function PoseAnnotatePage() {
   }
 
   function clearAll() {
-    if (!confirm('Clear all keypoints?')) return;
-    pushHistory();
-    const m = emptyKeypoints();
-    setKeypoints(m);
-    save.mutate(m);
-    setCurrentKp(0);
+    confirm.ask({
+      title: 'Clear all keypoints?',
+      message: 'This removes every placed keypoint on the current frame. You can undo this with U.',
+      confirmLabel: 'Clear all',
+      tone: 'danger',
+      onConfirm: () => {
+        pushHistory();
+        const m = emptyKeypoints();
+        setKeypoints(m);
+        save.mutate(m);
+        setCurrentKp(0);
+      },
+    });
+  }
+
+  const prevPoseKps = (prevItemQ.data?.annotation?.value as
+    | { keypoints?: KeypointValue[] }
+    | undefined)?.keypoints;
+  const hasPrevPose =
+    !!prevPoseKps && prevPoseKps.length === 17 && prevPoseKps.some((v) => v[2] > 0);
+
+  function copyPreviousPose() {
+    if (!prevPoseKps) return;
+    const apply = () => {
+      pushHistory();
+      const m: KeypointsMap = {};
+      for (const kp of COCO_KEYPOINTS) m[kp.id] = null;
+      prevPoseKps.forEach((v, i) => {
+        m[i] = v[2] > 0 ? v : null;
+      });
+      setKeypoints(m);
+      save.mutate(m);
+      setCurrentKp(sequence[0]);
+    };
+    const hasPlaced = Object.values(keypoints).some((v) => v && v[2] > 0);
+    if (!hasPlaced) {
+      apply();
+      return;
+    }
+    confirm.ask({
+      title: 'Overwrite current keypoints?',
+      message: 'The previous frame\u2019s pose will replace every point you\u2019ve placed here. Use Undo (U) if you change your mind.',
+      confirmLabel: 'Copy pose',
+      onConfirm: apply,
+    });
   }
 
   function undo() {
@@ -267,6 +260,9 @@ export default function PoseAnnotatePage() {
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if ((e.target as HTMLElement)?.tagName === 'INPUT') return;
+
+      // Suspend shortcuts while the confirm dialog is open (hook handles Esc).
+      if (confirm.isOpen) return;
 
       // Navigate items
       if (e.key === ']' && next) return navigate(`/projects/${projectId}/annotate/${next.id}`);
@@ -304,7 +300,7 @@ export default function PoseAnnotatePage() {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentKp, keypoints, prev, next, cursor]);
+  }, [currentKp, keypoints, prev, next, cursor, confirm.isOpen]);
 
   if (itemQ.isLoading || projectQ.isLoading) return <p className="p-6">Loading…</p>;
   if (!itemQ.data || !projectQ.data) return <p className="p-6">Not found.</p>;
@@ -554,79 +550,79 @@ export default function PoseAnnotatePage() {
             </p>
           </div>
 
-          <label className="flex items-start gap-2 text-xs text-slate-700 cursor-pointer select-none">
-            <input
-              type="checkbox"
-              checked={useTemplate}
-              onChange={(e) => setUseTemplate(e.target.checked)}
-              className="mt-0.5 accent-red-500"
-            />
-            <span>
-              <span className="font-medium">Reuse previous pose</span>
-              <span className="block text-slate-500">
-                Applied only to frames with no saved annotation yet — drag any
-                point to adjust. Frames that were already annotated (or
-                cleared) are never overwritten, so navigating back and forth
-                is safe.
-              </span>
-            </span>
-          </label>
-
           <BabyAvatar
             currentId={currentKp}
             keypoints={keypoints}
             onSelect={setCurrentKp}
           />
 
+          <button
+            type="button"
+            onClick={copyPreviousPose}
+            disabled={!hasPrevPose}
+            title={
+              hasPrevPose
+                ? 'Copy the previous frame\u2019s keypoints into this frame'
+                : 'No previous pose available'
+            }
+            className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg border border-slate-200 bg-white text-sm font-medium text-slate-700 transition hover:bg-slate-50 hover:border-slate-300 active:translate-y-px disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-white disabled:hover:border-slate-200"
+          >
+            <svg viewBox="0 0 16 16" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+              <path d="M10 2H4a1 1 0 0 0-1 1v8" />
+              <rect x="6" y="5" width="8" height="9" rx="1" />
+            </svg>
+            Copy previous pose
+          </button>
+
           <div className="grid grid-cols-2 gap-2 text-sm">
             <button
               onClick={() => prev && navigate(`/projects/${projectId}/annotate/${prev.id}`)}
               disabled={!prev}
-              className="inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-md bg-slate-800 text-white font-medium shadow-sm hover:bg-slate-900 active:translate-y-px disabled:bg-slate-200 disabled:text-slate-400 disabled:shadow-none disabled:cursor-not-allowed transition"
+              title="Previous frame ([)"
+              className="inline-flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg bg-slate-900 text-white font-medium shadow-sm hover:bg-slate-800 hover:shadow active:translate-y-px disabled:bg-slate-100 disabled:text-slate-400 disabled:shadow-none disabled:cursor-not-allowed transition"
             >
-              <span aria-hidden>←</span>
-              <span>Previous</span>
-              <kbd className="ml-0.5 text-[10px] border border-white/30 bg-white/10 rounded px-1 font-mono">[</kbd>
+              <span aria-hidden className="text-base leading-none">←</span>
+              Previous
             </button>
             <button
               onClick={() => next && navigate(`/projects/${projectId}/annotate/${next.id}`)}
               disabled={!next}
-              className="inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-md bg-slate-800 text-white font-medium shadow-sm hover:bg-slate-900 active:translate-y-px disabled:bg-slate-200 disabled:text-slate-400 disabled:shadow-none disabled:cursor-not-allowed transition"
+              title="Next frame (])"
+              className="inline-flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg bg-slate-900 text-white font-medium shadow-sm hover:bg-slate-800 hover:shadow active:translate-y-px disabled:bg-slate-100 disabled:text-slate-400 disabled:shadow-none disabled:cursor-not-allowed transition"
             >
-              <kbd className="mr-0.5 text-[10px] border border-white/30 bg-white/10 rounded px-1 font-mono">]</kbd>
-              <span>Next</span>
-              <span aria-hidden>→</span>
+              Next
+              <span aria-hidden className="text-base leading-none">→</span>
             </button>
           </div>
 
           <div className="grid grid-cols-2 gap-2 text-sm">
             <button
               onClick={markOccluded}
-              className="inline-flex items-center justify-center gap-1.5 px-2 py-2 rounded-md border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 hover:border-slate-400 transition"
+              title="Mark occluded (right-click)"
+              className="px-3 py-2 rounded-lg border border-slate-200 bg-white text-slate-700 font-medium hover:bg-slate-50 hover:border-slate-300 active:translate-y-px transition"
             >
               Occluded
-              <kbd className="text-[10px] border border-slate-300 rounded px-1 bg-slate-50 font-mono">right-click</kbd>
             </button>
             <button
               onClick={undo}
-              className="inline-flex items-center justify-center gap-1.5 px-2 py-2 rounded-md border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 hover:border-slate-400 transition"
+              title="Undo (U)"
+              className="px-3 py-2 rounded-lg border border-slate-200 bg-white text-slate-700 font-medium hover:bg-slate-50 hover:border-slate-300 active:translate-y-px transition"
             >
               Undo
-              <kbd className="text-[10px] border border-slate-300 rounded px-1 bg-slate-50 font-mono">U</kbd>
             </button>
             <button
               onClick={clearCurrent}
-              className="inline-flex items-center justify-center gap-1.5 px-2 py-2 rounded-md border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 hover:border-slate-400 transition"
+              title="Clear current keypoint (Backspace)"
+              className="px-3 py-2 rounded-lg border border-slate-200 bg-white text-slate-700 font-medium hover:bg-slate-50 hover:border-slate-300 active:translate-y-px transition"
             >
               Clear point
-              <kbd className="text-[10px] border border-slate-300 rounded px-1 bg-slate-50 font-mono">⌫</kbd>
             </button>
             <button
               onClick={clearAll}
-              className="inline-flex items-center justify-center gap-1.5 px-2 py-2 rounded-md border border-red-200 bg-white text-red-600 hover:bg-red-50 hover:border-red-300 transition"
+              title="Clear all keypoints (C)"
+              className="px-3 py-2 rounded-lg border border-red-200 bg-white text-red-600 font-medium hover:bg-red-50 hover:border-red-300 active:translate-y-px transition"
             >
               Clear all
-              <kbd className="text-[10px] border border-red-200 rounded px-1 bg-red-50 font-mono">C</kbd>
             </button>
           </div>
 
@@ -647,6 +643,7 @@ export default function PoseAnnotatePage() {
           </details>
         </aside>
       </div>
+      {confirm.dialog}
     </div>
   );
 }

@@ -21,6 +21,7 @@ import { listUsers } from '@/api/users';
 import { deleteVideo, listVideos, reassignVideo, uploadVideo } from '@/api/videos';
 import { downloadExport } from '@/lib/download';
 import { FILES_BASE } from '@/lib/env';
+import { useConfirm } from '@/components/ui/ConfirmDialog';
 
 function formatBytes(n: number): string {
   if (n < 1024) return `${n} B`;
@@ -41,6 +42,7 @@ export default function ProjectDetailPage() {
   const projectId = Number(id);
   const qc = useQueryClient();
   const navigate = useNavigate();
+  const confirmDialog = useConfirm();
 
   const meQ = useQuery({ queryKey: ['me'], queryFn: me });
   const isAdmin = meQ.data?.role === 'admin';
@@ -343,7 +345,15 @@ export default function ProjectDetailPage() {
           )}
           {isAdmin && (
             <button
-              onClick={() => confirm('Delete project?') && removeProject.mutate()}
+              onClick={() =>
+                confirmDialog.ask({
+                  title: 'Delete project?',
+                  message: 'This removes the project and every item, annotation, video and frame it contains. This cannot be undone.',
+                  confirmLabel: 'Delete project',
+                  tone: 'danger',
+                  onConfirm: () => removeProject.mutate(),
+                })
+              }
               className="text-sm text-red-600 border border-red-200 rounded px-3 py-1.5 hover:bg-red-50"
               title="Admin only"
             >
@@ -848,14 +858,15 @@ export default function ProjectDetailPage() {
                   </td>
                   <td className="py-2">
                     <button
-                      onClick={() => {
-                        if (
-                          confirm(
-                            `Delete video "${v.source_video}" and all ${v.frames} frames (and annotations)? This cannot be undone.`,
-                          )
-                        )
-                          removeVideo.mutate(v.source_video);
-                      }}
+                      onClick={() =>
+                        confirmDialog.ask({
+                          title: 'Delete video?',
+                          message: `"${v.source_video}" and all ${v.frames} extracted frames (plus their annotations) will be removed. This cannot be undone.`,
+                          confirmLabel: 'Delete video',
+                          tone: 'danger',
+                          onConfirm: () => removeVideo.mutate(v.source_video),
+                        })
+                      }
                       disabled={removeVideo.isPending}
                       className="text-slate-400 hover:text-red-600 p-1 disabled:opacity-40"
                       title="Delete video and all its frames"
@@ -918,14 +929,15 @@ export default function ProjectDetailPage() {
           <div className="flex items-center gap-2 flex-wrap">
             {isAdmin && items.some((i) => i.status === 'done' || i.status === 'reviewed') && (
               <button
-                onClick={() => {
-                  if (
-                    confirm(
-                      'Delete ALL annotated items (and their frames)? This cannot be undone.',
-                    )
-                  )
-                    removeAnnotated.mutate();
-                }}
+                onClick={() =>
+                  confirmDialog.ask({
+                    title: 'Delete all annotated items?',
+                    message: 'Every item with an annotation (status done or reviewed) will be deleted along with its frame. This cannot be undone.',
+                    confirmLabel: 'Delete annotated',
+                    tone: 'danger',
+                    onConfirm: () => removeAnnotated.mutate(),
+                  })
+                }
                 disabled={removeAnnotated.isPending}
                 className="text-sm text-red-600 border border-red-200 rounded px-3 py-1.5 hover:bg-red-50 disabled:opacity-50"
                 title="Remove every item that has an annotation"
@@ -1133,8 +1145,13 @@ export default function ProjectDetailPage() {
                   <button
                     onClick={(e) => {
                       e.preventDefault();
-                      if (confirm(`Clear annotation on item ${i.id}?`))
-                        clearItemAnnotation.mutate(i.id);
+                      confirmDialog.ask({
+                        title: 'Clear annotation?',
+                        message: `The annotation on item ${i.id} will be removed, but the item itself is kept so it can be re-annotated.`,
+                        confirmLabel: 'Clear annotation',
+                        tone: 'danger',
+                        onConfirm: () => clearItemAnnotation.mutate(i.id),
+                      });
                     }}
                     className="text-slate-400 hover:text-amber-600 p-1"
                     title="Clear annotation (keep item)"
@@ -1160,7 +1177,13 @@ export default function ProjectDetailPage() {
                 <button
                   onClick={(e) => {
                     e.preventDefault();
-                    if (confirm(`Delete item ${i.id}?`)) removeItem.mutate(i.id);
+                    confirmDialog.ask({
+                      title: 'Delete item?',
+                      message: `Item ${i.id} and any annotation on it will be permanently removed. This cannot be undone.`,
+                      confirmLabel: 'Delete item',
+                      tone: 'danger',
+                      onConfirm: () => removeItem.mutate(i.id),
+                    });
                   }}
                   className="text-slate-400 hover:text-red-600 p-1"
                   title="Delete this item"
@@ -1242,6 +1265,7 @@ export default function ProjectDetailPage() {
           </div>
         </div>
       )}
+      {confirmDialog.dialog}
     </div>
   );
 }
