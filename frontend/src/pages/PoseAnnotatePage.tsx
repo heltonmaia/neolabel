@@ -63,6 +63,16 @@ export default function PoseAnnotatePage() {
   const historyRef = useRef<KeypointsMap[]>([]);
   const imgRef = useRef<HTMLImageElement>(null);
   const draggingRef = useRef<{ id: number; moved: boolean } | null>(null);
+  // Guards against rapid-fire clicks / keyboard repeat on Prev/Next: we
+  // skip a nav if one was fired within the last ~120ms. Keeps the view
+  // from queueing up a backlog of URL changes that can render out of order.
+  const navLockRef = useRef(0);
+  const goTo = (targetId: number) => {
+    const now = Date.now();
+    if (now - navLockRef.current < 120) return;
+    navLockRef.current = now;
+    navigate(`/projects/${projectId}/annotate/${targetId}`);
+  };
 
   // Keyboard cursor position (as 0-1 percent of image)
   const [cursor, setCursor] = useState<{ x: number; y: number }>({ x: 0.5, y: 0.5 });
@@ -265,8 +275,8 @@ export default function PoseAnnotatePage() {
       if (confirm.isOpen) return;
 
       // Navigate items
-      if (e.key === ']' && next) return navigate(`/projects/${projectId}/annotate/${next.id}`);
-      if (e.key === '[' && prev) return navigate(`/projects/${projectId}/annotate/${prev.id}`);
+      if (e.key === ']' && next) return goTo(next.id);
+      if (e.key === '[' && prev) return goTo(prev.id);
 
       // Switch keypoint (walks the current ordering)
       if (e.key === 'Tab') {
@@ -304,10 +314,19 @@ export default function PoseAnnotatePage() {
 
   if (itemQ.isLoading || projectQ.isLoading) return <p className="p-6">Loading…</p>;
   if (!itemQ.data || !projectQ.data) return <p className="p-6">Not found.</p>;
+  // Belt-and-suspenders: if the cached data is for a different frame (can
+  // happen in the tick between URL change and query refetch settling),
+  // show Loading rather than painting the wrong image with the new header.
+  if (itemQ.data.id !== currentItemId) return <p className="p-6">Loading…</p>;
 
   const item = itemQ.data;
   const project = projectQ.data;
-  const imageUrl = (item.payload as { image_url?: string }).image_url;
+  const payload = item.payload as {
+    image_url?: string;
+    source_video?: string;
+    frame_index?: number;
+  };
+  const imageUrl = payload.image_url;
   const fullUrl = imageUrl ? `${FILES_BASE}${imageUrl}` : null;
   const doneCount = Object.values(keypoints).filter((v) => v && v[2] > 0).length;
   const isComplete = doneCount === 17;
@@ -315,9 +334,24 @@ export default function PoseAnnotatePage() {
   return (
     <div className="max-w-7xl mx-auto p-4 space-y-4">
       <header className="flex items-center justify-between">
-        <Link to={`/projects/${projectId}`} className="text-sm text-blue-600 hover:underline">
-          ← {project.name}
-        </Link>
+        <div>
+          <Link to={`/projects/${projectId}`} className="text-sm text-blue-600 hover:underline">
+            ← {project.name}
+          </Link>
+          <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500">
+            <span className="inline-flex items-center gap-1 font-mono bg-slate-100 text-slate-700 rounded px-1.5 py-0.5">
+              #{item.id}
+            </span>
+            {payload.source_video && (
+              <span className="truncate max-w-[260px]" title={payload.source_video}>
+                {payload.source_video}
+              </span>
+            )}
+            {typeof payload.frame_index === 'number' && (
+              <span className="tabular-nums">frame {payload.frame_index}</span>
+            )}
+          </div>
+        </div>
         <span className="text-sm text-slate-500 flex items-center gap-2">
           {idx >= 0 ? `${idx + 1} / ${items.length}` : ''} ·
           <span
@@ -343,6 +377,7 @@ export default function PoseAnnotatePage() {
             <>
               <img
                 ref={imgRef}
+                key={item.id}
                 src={fullUrl}
                 onClick={handleImageClick}
                 onContextMenu={handleContextMenu}
@@ -576,7 +611,7 @@ export default function PoseAnnotatePage() {
 
           <div className="grid grid-cols-2 gap-2 text-sm">
             <button
-              onClick={() => prev && navigate(`/projects/${projectId}/annotate/${prev.id}`)}
+              onClick={() => prev && goTo(prev.id)}
               disabled={!prev}
               title="Previous frame ([)"
               className="inline-flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg bg-slate-900 text-white font-medium shadow-sm hover:bg-slate-800 hover:shadow active:translate-y-px disabled:bg-slate-100 disabled:text-slate-400 disabled:shadow-none disabled:cursor-not-allowed transition"
@@ -585,7 +620,7 @@ export default function PoseAnnotatePage() {
               Previous
             </button>
             <button
-              onClick={() => next && navigate(`/projects/${projectId}/annotate/${next.id}`)}
+              onClick={() => next && goTo(next.id)}
               disabled={!next}
               title="Next frame (])"
               className="inline-flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg bg-slate-900 text-white font-medium shadow-sm hover:bg-slate-800 hover:shadow active:translate-y-px disabled:bg-slate-100 disabled:text-slate-400 disabled:shadow-none disabled:cursor-not-allowed transition"
