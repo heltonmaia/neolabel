@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# VPS hardening for Neo-Label — run on the production server as root.
+# VPS hardening for NeoLabel — run on the production server as root.
 #
 # What this does (three independent layers):
 #   1. unattended-upgrades  — auto-apply Ubuntu security patches nightly

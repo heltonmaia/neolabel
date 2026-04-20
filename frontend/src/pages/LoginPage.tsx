@@ -41,7 +41,7 @@ export default function LoginPage() {
         <div>
           <div className="flex items-center gap-2 text-sky-900">
             <LogoMark />
-            <span className="text-lg font-semibold tracking-tight">Neo-Label</span>
+            <span className="text-lg font-semibold tracking-tight">NeoLabel</span>
           </div>
         </div>
 
@@ -73,7 +73,7 @@ export default function LoginPage() {
         >
           <div className="flex items-center gap-2 lg:hidden">
             <LogoMark />
-            <span className="text-lg font-semibold tracking-tight text-sky-900">Neo-Label</span>
+            <span className="text-lg font-semibold tracking-tight text-sky-900">NeoLabel</span>
           </div>
           <div>
             <h1 className="text-2xl font-semibold text-slate-900">Sign in</h1>

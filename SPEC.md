@@ -1,4 +1,4 @@
-# Neo-Label — Specification
+# NeoLabel — Specification
 
 Source of truth for the product. Code follows the spec; when reality
 diverges, update the spec **before** the code.

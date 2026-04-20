@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Neo-Label prod monitoring menu (runs on the VPS).
+"""NeoLabel prod monitoring menu (runs on the VPS).
 
 Wraps the production compose stack (-p neo-label-prod, .env.prod,
 docker-compose.prod.yml) so you can watch logs, restart, redeploy,
@@ -155,7 +155,7 @@ def main() -> None:
         return
     while True:
         print("\n" + "═" * 50)
-        print("  Neo-Label — prod monitor")
+        print("  NeoLabel — prod monitor")
         print("═" * 50)
         for i, (label, _) in enumerate(MENU, 1):
             print(f"  {i:>2}. {label}")

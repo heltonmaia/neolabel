@@ -322,7 +322,7 @@ def build_yolo_export(project_id: int) -> tuple[BinaryIO, int]:
 
         zf.writestr(
             "README.txt",
-            f"Neo-Label YOLO-pose export\n"
+            f"NeoLabel YOLO-pose export\n"
             f"Project: {project_id}\n"
             f"Exported: {exported} annotated frames\n"
             f"Format: Ultralytics YOLO-pose, COCO 17 keypoints\n"
@@ -388,7 +388,7 @@ def build_bundle_export(project_id: int) -> tuple[BinaryIO, int]:
         )
         zf.writestr(
             "README.txt",
-            f"Neo-Label full bundle\n"
+            f"NeoLabel full bundle\n"
             f"Project: {project_id}\n"
             f"Items: {len(rows)}\n"
             f"Images included: {included_images}\n"

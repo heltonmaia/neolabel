@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Neo-Label dev runner — interactive menu (Docker-based).
+"""NeoLabel dev runner — interactive menu (Docker-based).
 
 Run: python run.py
 
@@ -98,7 +98,7 @@ MENU = [
 def main() -> None:
     while True:
         print("\n" + "═" * 50)
-        print("  Neo-Label — dev runner (docker compose)")
+        print("  NeoLabel — dev runner (docker compose)")
         print("═" * 50)
         for i, (label, _) in enumerate(MENU, 1):
             print(f"  {i}. {label}")

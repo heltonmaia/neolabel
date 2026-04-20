@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Back up Neo-Label runtime data + secrets to a directory outside the
+# Back up NeoLabel runtime data + secrets to a directory outside the
 # project tree, so the data survives a bad deploy, accidental rm, or
 # repo reset. Not an offsite backup — protects against project-local
 # problems only. For disaster recovery of the whole VPS, pull these

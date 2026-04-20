@@ -1,7 +1,7 @@
 [project]
 name = "neolabel-backend"
 version = "0.1.0"
-description = "Neo-Label data annotation backend"
+description = "NeoLabel data annotation backend"
 requires-python = ">=3.11"
 dependencies = [
     "fastapi>=0.115",

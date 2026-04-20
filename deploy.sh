@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Deploy Neo-Label on the VPS.
+# Deploy NeoLabel on the VPS.
 # Pulls latest code, rebuilds, restarts, and health-checks.
 #
 # Usage:
