@@ -23,10 +23,62 @@ const ORDER_LABEL: Record<OrderMode, string> = {
 
 type KeypointsMap = Record<number, KeypointValue | null>;
 
+type DragState =
+  | { mode: 'single'; id: number; moved: boolean }
+  | {
+      mode: 'group';
+      id: number;
+      moved: boolean;
+      startClientX: number;
+      startClientY: number;
+      snapshot: KeypointsMap;
+      imgW: number;
+      imgH: number;
+      rectW: number;
+      rectH: number;
+    };
+
 function emptyKeypoints(): KeypointsMap {
   const m: KeypointsMap = {};
   for (const kp of COCO_KEYPOINTS) m[kp.id] = null;
   return m;
+}
+
+function translateAll(snapshot: KeypointsMap, dx: number, dy: number): KeypointsMap {
+  const next: KeypointsMap = {};
+  for (const kp of COCO_KEYPOINTS) {
+    const v = snapshot[kp.id];
+    next[kp.id] = v ? [Math.round(v[0] + dx), Math.round(v[1] + dy), v[2]] : null;
+  }
+  return next;
+}
+
+// Clamp a translation so the bounding box of all placed keypoints stays
+// fully inside the image — the whole pose shifts together instead of
+// individual points being clipped, which would distort the skeleton.
+function clampGroupDelta(
+  snapshot: KeypointsMap,
+  dx: number,
+  dy: number,
+  imgW: number,
+  imgH: number,
+): { dx: number; dy: number } {
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (const v of Object.values(snapshot)) {
+    if (!v) continue;
+    if (v[0] < minX) minX = v[0];
+    if (v[0] > maxX) maxX = v[0];
+    if (v[1] < minY) minY = v[1];
+    if (v[1] > maxY) maxY = v[1];
+  }
+  if (minX === Infinity) return { dx: 0, dy: 0 };
+  return {
+    dx: Math.max(-minX, Math.min(imgW - maxX, dx)),
+    dy: Math.max(-minY, Math.min(imgH - maxY, dy)),
+  };
 }
 
 export default function PoseAnnotatePage() {
@@ -62,7 +114,9 @@ export default function PoseAnnotatePage() {
   }, [orderMode]);
   const historyRef = useRef<KeypointsMap[]>([]);
   const imgRef = useRef<HTMLImageElement>(null);
-  const draggingRef = useRef<{ id: number; moved: boolean } | null>(null);
+  const draggingRef = useRef<DragState | null>(null);
+  const nudgeTimerRef = useRef<number | null>(null);
+  const saveDebounceRef = useRef<number | null>(null);
   // Guards against rapid-fire clicks / keyboard repeat on Prev/Next: we
   // skip a nav if one was fired within the last ~120ms. Keeps the view
   // from queueing up a backlog of URL changes that can render out of order.
@@ -267,6 +321,34 @@ export default function PoseAnnotatePage() {
     save.mutate(prev);
   }
 
+  // Rapid Shift+Arrow presses coalesce into one undo step and one save:
+  // history is pushed on the first nudge of a run and reset after 500ms
+  // of idleness; save is debounced 400ms behind the last nudge.
+  function nudgeAll(dx: number, dy: number) {
+    const img = imgRef.current;
+    if (!img) return;
+    if (nudgeTimerRef.current === null) pushHistory();
+    else clearTimeout(nudgeTimerRef.current);
+    nudgeTimerRef.current = window.setTimeout(() => {
+      nudgeTimerRef.current = null;
+    }, 500);
+
+    setKeypoints((prev) => {
+      const clamped = clampGroupDelta(prev, dx, dy, img.naturalWidth, img.naturalHeight);
+      if (clamped.dx === 0 && clamped.dy === 0) return prev;
+      return translateAll(prev, clamped.dx, clamped.dy);
+    });
+
+    if (saveDebounceRef.current !== null) clearTimeout(saveDebounceRef.current);
+    saveDebounceRef.current = window.setTimeout(() => {
+      setKeypoints((latest) => {
+        save.mutate(latest);
+        return latest;
+      });
+      saveDebounceRef.current = null;
+    }, 400);
+  }
+
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if ((e.target as HTMLElement)?.tagName === 'INPUT') return;
@@ -293,12 +375,25 @@ export default function PoseAnnotatePage() {
         return;
       }
 
-      // Keyboard cursor movement on image
-      const step = e.shiftKey ? 0.05 : 0.01;
-      if (e.key === 'ArrowLeft')  { e.preventDefault(); setKeyboardMode(true); setCursor((c) => ({ ...c, x: Math.max(0, c.x - step) })); return; }
-      if (e.key === 'ArrowRight') { e.preventDefault(); setKeyboardMode(true); setCursor((c) => ({ ...c, x: Math.min(1, c.x + step) })); return; }
-      if (e.key === 'ArrowUp')    { e.preventDefault(); setKeyboardMode(true); setCursor((c) => ({ ...c, y: Math.max(0, c.y - step) })); return; }
-      if (e.key === 'ArrowDown')  { e.preventDefault(); setKeyboardMode(true); setCursor((c) => ({ ...c, y: Math.min(1, c.y + step) })); return; }
+      // Arrow keys: Shift = nudge the whole group (2px natural), plain =
+      // move the keyboard cursor overlay (for placing with Enter/Space).
+      if (e.key === 'ArrowLeft' || e.key === 'ArrowRight' || e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+        e.preventDefault();
+        if (e.shiftKey) {
+          const delta = 2;
+          const dx = e.key === 'ArrowLeft' ? -delta : e.key === 'ArrowRight' ? delta : 0;
+          const dy = e.key === 'ArrowUp' ? -delta : e.key === 'ArrowDown' ? delta : 0;
+          nudgeAll(dx, dy);
+          return;
+        }
+        setKeyboardMode(true);
+        const step = 0.01;
+        if (e.key === 'ArrowLeft')  setCursor((c) => ({ ...c, x: Math.max(0, c.x - step) }));
+        if (e.key === 'ArrowRight') setCursor((c) => ({ ...c, x: Math.min(1, c.x + step) }));
+        if (e.key === 'ArrowUp')    setCursor((c) => ({ ...c, y: Math.max(0, c.y - step) }));
+        if (e.key === 'ArrowDown')  setCursor((c) => ({ ...c, y: Math.min(1, c.y + step) }));
+        return;
+      }
 
       // Actions
       if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); placeAtCursor(); return; }
@@ -431,13 +526,39 @@ export default function PoseAnnotatePage() {
                       e.stopPropagation();
                       (e.target as Element).setPointerCapture(e.pointerId);
                       pushHistory();
-                      draggingRef.current = { id: kp.id, moved: false };
-                      setCurrentKp(kp.id);
+                      if (e.shiftKey && imgRef.current) {
+                        const img = imgRef.current;
+                        const rect = img.getBoundingClientRect();
+                        draggingRef.current = {
+                          mode: 'group',
+                          id: kp.id,
+                          moved: false,
+                          startClientX: e.clientX,
+                          startClientY: e.clientY,
+                          snapshot: keypoints,
+                          imgW: img.naturalWidth,
+                          imgH: img.naturalHeight,
+                          rectW: rect.width,
+                          rectH: rect.height,
+                        };
+                      } else {
+                        draggingRef.current = { mode: 'single', id: kp.id, moved: false };
+                        setCurrentKp(kp.id);
+                      }
                     }
                     function onMove(e: React.PointerEvent<SVGGElement>) {
                       const drag = draggingRef.current;
                       const img = imgRef.current;
-                      if (!drag || drag.id !== kp.id || !img || !v) return;
+                      if (!drag || drag.id !== kp.id || !img) return;
+                      if (drag.mode === 'group') {
+                        const dx = ((e.clientX - drag.startClientX) / drag.rectW) * drag.imgW;
+                        const dy = ((e.clientY - drag.startClientY) / drag.rectH) * drag.imgH;
+                        const clamped = clampGroupDelta(drag.snapshot, dx, dy, drag.imgW, drag.imgH);
+                        drag.moved = true;
+                        setKeypoints(translateAll(drag.snapshot, clamped.dx, clamped.dy));
+                        return;
+                      }
+                      if (!v) return;
                       const rect = img.getBoundingClientRect();
                       const xNat = ((e.clientX - rect.left) / rect.width) * img.naturalWidth;
                       const yNat = ((e.clientY - rect.top) / rect.height) * img.naturalHeight;
@@ -666,7 +787,8 @@ export default function PoseAnnotatePage() {
               Keyboard shortcuts
             </summary>
             <div className="px-2 py-2 space-y-1">
-              <p><kbd className="border rounded px-1">←↑↓→</kbd> move cursor on image (Shift = bigger step)</p>
+              <p><kbd className="border rounded px-1">←↑↓→</kbd> move cursor on image</p>
+              <p><kbd className="border rounded px-1">Shift</kbd> + drag a point = move all points · <kbd className="border rounded px-1">Shift+←↑↓→</kbd> nudge all by 2&nbsp;px</p>
               <p><kbd className="border rounded px-1">Enter</kbd> / <kbd className="border rounded px-1">Space</kbd> place keypoint at cursor</p>
               <p><kbd className="border rounded px-1">Tab</kbd> / <kbd className="border rounded px-1">N</kbd> next keypoint · <kbd className="border rounded px-1">Shift+Tab</kbd> / <kbd className="border rounded px-1">P</kbd> previous (walks the chosen order)</p>
               <p><kbd className="border rounded px-1">1</kbd>…<kbd className="border rounded px-1">9</kbd> jump to keypoint 1–9</p>
