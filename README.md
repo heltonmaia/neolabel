@@ -1,10 +1,17 @@
 # NeoLabel
 
-Software for baby pose annotation — build Machine Learning datasets for
-infant pose estimation. Create projects, upload videos, annotate frames with
+Software for video-based pose annotation — build Machine Learning datasets
+for pose estimation and behavioral analysis. The primary use case is
+**infant pose annotation**, and the same workflow applies to **rodent
+behavior experiments** such as **Open Field (OF)** and **Elevated Plus
+Maze (EPM)**. Create projects, upload videos, annotate frames with
 keyboard shortcuts, and export the result.
 
-![NeoLabel sign-in](docs/screenshots/login.png)
+<p align="center">
+  <img src="docs/screenshots/login.png" alt="NeoLabel sign-in screen" width="760">
+  <br>
+  <sub><em>NeoLabel sign-in — entry point to projects, videos, and annotation.</em></sub>
+</p>
 
 > The full specification — domain model, API reference, and roadmap —
 > lives in **[SPEC.md](./SPEC.md)**.
@@ -15,9 +22,23 @@ keyboard shortcuts, and export the result.
   `annotator`, `reviewer`). Destructive bulk operations (delete project,
   delete all annotated items) are admin-only.
 - **Projects** with types:
-  - **Pose detection** — 17 COCO keypoints, interactive baby avatar as a
-    visual guide, video upload with FFmpeg-based frame extraction.
+  - **Pose detection** — keypoint annotation on video frames with
+    FFmpeg-based extraction. Two schemas in use today:
+    - **Infant pose** — 17 COCO keypoints with an interactive baby
+      avatar as a visual guide.
+    - **Rodent pose** — 7 keypoints (`N` nose, `LEar`/`REar`, `BC`
+      body center, `TB`/`TM`/`TT` tail base/middle/tip) for behavioral
+      assays such as **Open Field (OF)** and **Elevated Plus Maze
+      (EPM)**.
+
+    New schemas can be defined as the need arises.
   - **Image segmentation** (roadmap).
+
+<p align="center">
+  <img src="docs/schemas/rodent-pose.svg" alt="Rodent pose — 7 keypoints (N, LEar, REar, BC, TB, TM, TT)" width="300">
+  <br>
+  <sub><em>Rodent keypoint schema currently in use.</em></sub>
+</p>
 - **Admin-only video upload** — optionally assigned to a specific
   annotator, or left in the admin pool (extracted frames with no
   assignee). Admins can reassign a whole video to another user, clear
@@ -185,27 +206,25 @@ the suite never touches local data.
 
 ## License
 
-MIT License
+**[PolyForm Noncommercial License 1.0.0](./LICENSE)** — noncommercial
+use only; attribution required.
 
-Copyright (c) 2026 Helton Maia
+Copyright (c) 2026 Helton Maia — <https://heltonmaia.com>
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+- **Permitted**: personal, academic, and other noncommercial use,
+  including by educational institutions, public research
+  organizations, and government bodies. Modifications and
+  redistribution are allowed under the same terms.
+- **Not permitted**: any commercial use without a separate license
+  from the author.
+- **Required**: keep the license notice (including the
+  `Required Notice: Copyright (c) 2026 Helton Maia`) with any copy
+  or derivative of the software. If you use this in academic work,
+  please cite the project and the author.
 
-The above copyright notice and this permission notice shall be included in
-all copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+Full terms: [LICENSE](./LICENSE) ·
+[polyformproject.org](https://polyformproject.org/licenses/noncommercial/1.0.0/).
+For commercial licensing, contact the author.
 
 ## Author
 

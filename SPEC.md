@@ -12,8 +12,10 @@ diverges, update the spec **before** the code.
   storage, login/register/projects UI.
 - ✅ **Phase 2 — Text labeling MVP.** Labels, bulk item upload,
   keyboard-driven annotation UI, exports (JSON/JSONL/CSV).
-- ✅ **Phase 3 — Pose detection.** 17 COCO keypoints, baby-avatar guide,
-  video upload with FFmpeg frame extraction, YOLO-pose ZIP export.
+- ✅ **Phase 3 — Pose detection.** Video upload with FFmpeg frame
+  extraction, keyboard-driven annotation, YOLO-pose ZIP export.
+  Keypoint schemas: infant pose (17 COCO, `BabyAvatar` guide) and
+  rodent pose (7 keypoints) for behavioral assays (OF / EPM). See §2.
 - ✅ **Phase 4 — Multi-user assignments.** `admin` role, per-user
   `assigned_to` on items (optional — items may be unassigned and live
   in the admin pool), admin-only video upload with optional assignee,
@@ -48,6 +50,21 @@ Core records:
   - pose frames: `{source_video: str, frame_index: int, image_url: str}`
 - `annotation.value` is label-type-specific JSON (e.g. for pose,
   `{keypoints: [[x, y, visibility], ...]}`).
+
+### Keypoint schemas (`pose_detection`)
+
+`annotation.value.keypoints` is schema-dependent; array order is stable
+per schema and matches the list below. Adding a new schema does not
+require a storage migration (value is free-form JSON per project) — it
+does require frontend wiring (visual guide, shortcuts).
+
+- **Infant pose — 17 keypoints.** COCO-17 (nose, eyes, ears, shoulders,
+  elbows, wrists, hips, knees, ankles). Visual guide: interactive
+  `BabyAvatar` component.
+- **Rodent pose — 7 keypoints.** `N` (nose), `LEar`, `REar`, `BC`
+  (body center), `TB` (tail base), `TM` (tail middle), `TT` (tail tip).
+  Target use: Open Field and Elevated Plus Maze (EPM) video
+  annotation. See `docs/schemas/rodent-pose.svg`.
 
 ## 3. Storage (filesystem, no DB)
 

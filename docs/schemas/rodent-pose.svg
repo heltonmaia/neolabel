@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 440 560" role="img" aria-label="NeoLabel rodent pose — 7 keypoints">
+  <title>NeoLabel rodent pose — 7 keypoints</title>
+  <defs>
+    <style>
+      .edge { stroke: #374151; stroke-width: 2.4; stroke-linecap: round; fill: none; }
+      .kp { stroke-width: 2.5; fill: #ffffff; }
+      .kp-head { stroke: #2563eb; }
+      .kp-body { stroke: #059669; }
+      .kp-tail { stroke: #d97706; }
+      .label { font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; font-size: 14px; font-weight: 500; fill: #111827; }
+      .caption { font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; font-size: 13px; fill: #6b7280; }
+    </style>
+  </defs>
+
+  <g class="edge">
+    <line x1="220" y1="80"  x2="140" y2="160" />
+    <line x1="220" y1="80"  x2="300" y2="160" />
+    <line x1="140" y1="160" x2="220" y2="240" />
+    <line x1="300" y1="160" x2="220" y2="240" />
+    <line x1="220" y1="240" x2="220" y2="320" />
+    <line x1="220" y1="320" x2="220" y2="400" />
+    <line x1="220" y1="400" x2="220" y2="480" />
+  </g>
+
+  <circle cx="220" cy="80"  r="10" class="kp kp-head" />
+  <circle cx="140" cy="160" r="10" class="kp kp-head" />
+  <circle cx="300" cy="160" r="10" class="kp kp-head" />
+  <circle cx="220" cy="240" r="10" class="kp kp-body" />
+  <circle cx="220" cy="320" r="10" class="kp kp-tail" />
+  <circle cx="220" cy="400" r="10" class="kp kp-tail" />
+  <circle cx="220" cy="480" r="10" class="kp kp-tail" />
+
+  <text class="label" x="234" y="84">N — Nose</text>
+  <text class="label" x="126" y="164" text-anchor="end">LEar</text>
+  <text class="label" x="314" y="164">REar</text>
+  <text class="label" x="234" y="244">BC — Body Center</text>
+  <text class="label" x="234" y="324">TB — Tail Base</text>
+  <text class="label" x="234" y="404">TM — Tail Middle</text>
+  <text class="label" x="234" y="484">TT — Tail Tip</text>
+
+  <text class="caption" x="220" y="530" text-anchor="middle">Rodent pose — 7 keypoints (OF / EPM)</text>
+</svg>
