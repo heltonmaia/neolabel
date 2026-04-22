@@ -301,7 +301,24 @@ export default function ProjectDetailPage() {
             ← Projects
           </Link>
           <h1 className="text-2xl font-semibold">{project.name}</h1>
-          <p className="text-sm text-slate-500">{project.type}</p>
+          <p className="text-sm text-slate-500 flex items-center gap-2">
+            <span>{project.type}</span>
+            <span
+              className={
+                'inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium ring-1 ' +
+                (project.keypoint_schema === 'rodent'
+                  ? 'bg-amber-50 text-amber-800 ring-amber-200'
+                  : 'bg-sky-50 text-sky-800 ring-sky-200')
+              }
+              title={
+                project.keypoint_schema === 'rodent'
+                  ? 'Rodent pose — 7 keypoints (immutable)'
+                  : 'Infant pose — 17 COCO keypoints (immutable)'
+              }
+            >
+              {project.keypoint_schema === 'rodent' ? 'rodent · 7 pts' : 'infant · 17 pts'}
+            </span>
+          </p>
         </div>
         <div className="flex gap-2 relative">
           <button

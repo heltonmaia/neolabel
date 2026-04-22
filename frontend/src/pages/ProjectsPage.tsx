@@ -11,6 +11,23 @@ const SCHEMAS: { value: KeypointSchema; label: string; hint: string }[] = [
   { value: 'rodent', label: 'Rodent pose', hint: '7 pts — OF / EPM'  },
 ];
 
+function SchemaBadge({ schema }: { schema: KeypointSchema }) {
+  const isRodent = schema === 'rodent';
+  return (
+    <span
+      className={
+        'inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium ring-1 ' +
+        (isRodent
+          ? 'bg-amber-50 text-amber-800 ring-amber-200'
+          : 'bg-sky-50 text-sky-800 ring-sky-200')
+      }
+      title={isRodent ? 'Rodent pose — 7 keypoints' : 'Infant pose — 17 COCO keypoints'}
+    >
+      {isRodent ? 'rodent · 7 pts' : 'infant · 17 pts'}
+    </span>
+  );
+}
+
 export default function ProjectsPage() {
   const qc = useQueryClient();
   const logout = useAuth((s) => s.logout);
@@ -135,10 +152,11 @@ export default function ProjectsPage() {
               <li key={p.id} className="bg-white p-4 rounded-lg shadow flex justify-between items-center">
                 <Link to={`/projects/${p.id}`} className="flex-1 hover:underline">
                   <p className="font-medium">{p.name}</p>
-                  <p className="text-sm text-slate-500">
-                    {p.type}
+                  <p className="text-sm text-slate-500 flex items-center gap-2">
+                    <span>{p.type}</span>
+                    <SchemaBadge schema={p.keypoint_schema} />
                     {isAdmin && (
-                      <span className="ml-2 text-xs text-slate-400">
+                      <span className="text-xs text-slate-400">
                         · owner: {owner ? owner.username : `#${p.owner_id}`}
                       </span>
                     )}
