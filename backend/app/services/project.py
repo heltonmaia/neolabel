@@ -44,6 +44,7 @@ def create(data: ProjectCreate, owner_id: int) -> ProjectRead:
         "name": data.name,
         "description": data.description,
         "type": data.type.value,
+        "keypoint_schema": data.keypoint_schema.value,
         "owner_id": owner_id,
         "created_at": datetime.now(timezone.utc).isoformat(),
         "labels": [],

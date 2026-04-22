@@ -1,14 +1,14 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
-import { createProject, deleteProject, listProjects, ProjectType } from '@/api/projects';
+import { createProject, deleteProject, listProjects, KeypointSchema } from '@/api/projects';
 import { listUsers } from '@/api/users';
 import { me } from '@/api/auth';
 import { useAuth } from '@/stores/auth';
 
-const TYPES: { value: ProjectType; label: string }[] = [
-  { value: 'pose_detection', label: 'Pose detection' },
-  { value: 'image_segmentation', label: 'Image segmentation' },
+const SCHEMAS: { value: KeypointSchema; label: string; hint: string }[] = [
+  { value: 'infant', label: 'Infant pose', hint: '17 COCO keypoints' },
+  { value: 'rodent', label: 'Rodent pose', hint: '7 pts — OF / EPM'  },
 ];
 
 export default function ProjectsPage() {
@@ -40,7 +40,7 @@ export default function ProjectsPage() {
   const usersById = new Map((usersQ.data ?? []).map((u) => [u.id, u]));
 
   const [name, setName] = useState('');
-  const [type, setType] = useState<ProjectType>('pose_detection');
+  const [schema, setSchema] = useState<KeypointSchema>('infant');
 
   const createMut = useMutation({
     mutationFn: createProject,
@@ -94,7 +94,9 @@ export default function ProjectsPage() {
       <form
         onSubmit={(e) => {
           e.preventDefault();
-          if (name.trim()) createMut.mutate({ name, type });
+          if (name.trim()) {
+            createMut.mutate({ name, type: 'pose_detection', keypoint_schema: schema });
+          }
         }}
         className="bg-white p-4 rounded-lg shadow flex gap-2"
       >
@@ -105,12 +107,15 @@ export default function ProjectsPage() {
           className="flex-1 border rounded px-3 py-2"
         />
         <select
-          value={type}
-          onChange={(e) => setType(e.target.value as ProjectType)}
+          value={schema}
+          onChange={(e) => setSchema(e.target.value as KeypointSchema)}
+          title="Keypoint schema (immutable after creation)"
           className="border rounded px-3 py-2"
         >
-          {TYPES.map((t) => (
-            <option key={t.value} value={t.value}>{t.label}</option>
+          {SCHEMAS.map((s) => (
+            <option key={s.value} value={s.value}>
+              {s.label} — {s.hint}
+            </option>
           ))}
         </select>
         <button className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">

@@ -178,14 +178,22 @@ def delete_annotated(project_id: int) -> int:
     return count
 
 
-def _status_for(project_type: str | None, value: dict) -> str:
-    """For pose projects, 'done' requires all 17 keypoints labeled (v>0)."""
-    if project_type == "pose_detection":
-        kps = value.get("keypoints") or []
-        if len(kps) == 17 and all(isinstance(k, list) and len(k) >= 3 and k[2] > 0 for k in kps):
-            return ItemStatus.done.value
-        return ItemStatus.in_progress.value
-    return ItemStatus.done.value
+def _expected_kpts(project: dict | None) -> int:
+    """Keypoint count expected for a pose project's schema (tolerant read)."""
+    schema = (project or {}).get("keypoint_schema") or "infant"
+    return 7 if schema == "rodent" else 17
+
+
+def _status_for(project: dict | None, value: dict) -> str:
+    """For pose projects, 'done' requires every keypoint in the project's
+    schema to be labeled (v>0). Non-pose projects are 'done' on any save."""
+    if not project or project.get("type") != "pose_detection":
+        return ItemStatus.done.value
+    expected = _expected_kpts(project)
+    kps = value.get("keypoints") or []
+    if len(kps) == expected and all(isinstance(k, list) and len(k) >= 3 and k[2] > 0 for k in kps):
+        return ItemStatus.done.value
+    return ItemStatus.in_progress.value
 
 
 def upsert_annotation(item: dict, annotator_id: int, data: AnnotationUpsert) -> AnnotationRead:
@@ -207,7 +215,7 @@ def upsert_annotation(item: dict, annotator_id: int, data: AnnotationUpsert) -> 
         }
     storage.save_annotation(pid, record)
     project = storage.load_project(pid)
-    item["status"] = _status_for(project.get("type") if project else None, data.value)
+    item["status"] = _status_for(project, data.value)
     storage.save_item(item)
     return AnnotationRead.model_validate(record)
 
@@ -239,7 +247,12 @@ def _jpeg_size(path: Path) -> tuple[int, int] | None:
 
 
 def build_yolo_export(project_id: int) -> tuple[BinaryIO, int]:
-    """Build a YOLO-pose dataset ZIP (COCO 17-keypoints, Ultralytics format).
+    """Build a YOLO-pose dataset ZIP (Ultralytics format).
+
+    Keypoint layout is chosen by the project's `keypoint_schema`:
+    - `infant` → 17 COCO keypoints (default for projects created before the
+      field existed)
+    - `rodent` → 7 keypoints (N, LEar, REar, BC, TB, TM, TT) for OF / EPM
 
     Spills to disk past 64 MiB so large projects don't pin the container's
     RAM. Returns a file-like positioned at 0 plus its total byte size so the
@@ -249,8 +262,23 @@ def build_yolo_export(project_id: int) -> tuple[BinaryIO, int]:
     Structure:
         data.yaml
         images/train/<stem>.jpg
-        labels/train/<stem>.txt   — `0 cx cy w h  x1 y1 v1 ... x17 y17 v17` (normalized)
+        labels/train/<stem>.txt   — `0 cx cy w h  x1 y1 v1 ... xN yN vN` (normalized)
     """
+    project = storage.load_project(project_id) or {}
+    schema = project.get("keypoint_schema") or "infant"
+    if schema == "rodent":
+        num_kpts = 7
+        # Top-down horizontal flip: LEar (1) and REar (2) swap; rest self-map.
+        flip_idx = [0, 2, 1, 3, 4, 5, 6]
+        class_name = "rodent"
+        schema_label = "rodent (7 keypoints: N, LEar, REar, BC, TB, TM, TT)"
+    else:
+        num_kpts = 17
+        # COCO horizontal-flip index: swaps left<->right joints.
+        flip_idx = [0, 2, 1, 4, 3, 6, 5, 8, 7, 10, 9, 12, 11, 14, 13, 16, 15]
+        class_name = "person"
+        schema_label = "COCO 17 keypoints"
+
     items = storage.list_items(project_id)
     anns = {a["item_id"]: a for a in storage.list_annotations_for_project(project_id)}
     data_root = Path(settings.DATA_DIR)
@@ -264,13 +292,12 @@ def build_yolo_export(project_id: int) -> tuple[BinaryIO, int]:
         # instead, which breaks any training run started from a directory
         # that isn't the extracted dataset root.
         yaml = (
-            "# YOLO-pose dataset (COCO 17 keypoints)\n"
+            f"# YOLO-pose dataset ({schema_label})\n"
             "train: images/train\n"
             "val: images/train\n"
-            "kpt_shape: [17, 3]\n"
-            # COCO horizontal-flip index: swaps left<->right joints
-            "flip_idx: [0, 2, 1, 4, 3, 6, 5, 8, 7, 10, 9, 12, 11, 14, 13, 16, 15]\n"
-            "names:\n  0: person\n"
+            f"kpt_shape: [{num_kpts}, 3]\n"
+            f"flip_idx: {flip_idx}\n"
+            f"names:\n  0: {class_name}\n"
         )
         zf.writestr("data.yaml", yaml)
 
@@ -280,7 +307,7 @@ def build_yolo_export(project_id: int) -> tuple[BinaryIO, int]:
             if not ann:
                 continue
             kps = (ann.get("value") or {}).get("keypoints") or []
-            if len(kps) != 17:
+            if len(kps) != num_kpts:
                 continue
             image_url = (item.get("payload") or {}).get("image_url")
             if not image_url or not image_url.startswith("/files/"):
@@ -325,7 +352,7 @@ def build_yolo_export(project_id: int) -> tuple[BinaryIO, int]:
             f"NeoLabel YOLO-pose export\n"
             f"Project: {project_id}\n"
             f"Exported: {exported} annotated frames\n"
-            f"Format: Ultralytics YOLO-pose, COCO 17 keypoints\n"
+            f"Format: Ultralytics YOLO-pose, {schema_label}\n"
             f"Train with e.g.:\n"
             f"  yolo pose train data=data.yaml model=yolo11n-pose.pt epochs=100\n"
             f"(same yaml works for YOLOv8/v11/v12/v26 pose.)\n",

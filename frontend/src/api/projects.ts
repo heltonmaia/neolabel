@@ -1,6 +1,11 @@
 import { api } from './client';
 
-export type ProjectType = 'pose_detection' | 'image_segmentation';
+// Creation UI only offers pose_detection. The backend still accepts
+// 'image_segmentation' on a legacy enum value for backward-compat with any
+// pre-existing project.json; we intentionally don't surface it here.
+export type ProjectType = 'pose_detection';
+
+export type KeypointSchema = 'infant' | 'rodent';
 
 export interface Label {
   id: number;
@@ -15,6 +20,9 @@ export interface Project {
   name: string;
   description: string | null;
   type: ProjectType;
+  // Tolerant read on the server defaults missing values to 'infant', so this
+  // field is always present on the wire even for pre-migration projects.
+  keypoint_schema: KeypointSchema;
   owner_id: number;
   created_at: string;
   labels: Label[];
@@ -30,6 +38,7 @@ export async function createProject(input: {
   name: string;
   description?: string;
   type: ProjectType;
+  keypoint_schema?: KeypointSchema;
 }) {
   const { data } = await api.post<Project>('/projects', input);
   return data;

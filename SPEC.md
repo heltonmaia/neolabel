@@ -31,8 +31,11 @@ diverges, update the spec **before** the code.
 Enums used across API and storage:
 
 - `UserRole` ∈ {`admin`, `annotator`, `reviewer`}
-- `ProjectType` ∈ {`text_classification`, `pose_detection`,
-  `image_classification`, `bbox`, `ner`}
+- `ProjectType` ∈ {`pose_detection`, `image_segmentation`}
+  — `image_segmentation` is a legacy enum value kept for back-compat with
+  any pre-existing `project.json`; the creation UI no longer offers it.
+- `KeypointSchema` ∈ {`infant`, `rodent`} — pose-only; see §2 keypoint
+  schemas subsection.
 - `ItemStatus` ∈ {`pending`, `in_progress`, `done`, `reviewed`}
 
 Core records:
@@ -40,7 +43,7 @@ Core records:
 | Record | Shape (essential fields) |
 |---|---|
 | User | `id, username, hashed_password, role, created_at` |
-| Project | `id, name, description, type, owner_id, created_at, labels[]` |
+| Project | `id, name, description, type, keypoint_schema, owner_id, created_at, labels[]` |
 | Label | `id, project_id, name, color, shortcut` |
 | Item | `id, project_id, payload, status, assigned_to, created_at` |
 | Annotation | `id, item_id, annotator_id, value, created_at, updated_at` |
@@ -53,18 +56,33 @@ Core records:
 
 ### Keypoint schemas (`pose_detection`)
 
+Every pose project carries a `keypoint_schema` field on
+`project.json` that picks which layout annotators and exports operate
+on. The field is:
+
+- **Required at creation**, chosen in the project-creation form.
+- **Immutable afterwards** — changing the schema would invalidate
+  every annotation already stored under the project. There is no API
+  to edit it; to change schema you create a new project.
+- **Tolerant on read** — `project.json` files written before the
+  field existed default to `infant`, preserving legacy behavior
+  without a migration.
+
 `annotation.value.keypoints` is schema-dependent; array order is stable
 per schema and matches the list below. Adding a new schema does not
 require a storage migration (value is free-form JSON per project) — it
-does require frontend wiring (visual guide, shortcuts).
+does require frontend wiring (visual guide component, shortcuts, YOLO
+export branch).
 
 - **Infant pose — 17 keypoints.** COCO-17 (nose, eyes, ears, shoulders,
-  elbows, wrists, hips, knees, ankles). Visual guide: interactive
-  `BabyAvatar` component.
+  elbows, wrists, hips, knees, ankles). Visual guide: `BabyAvatar`
+  component. YOLO export: `kpt_shape: [17, 3]`, `class: person`.
 - **Rodent pose — 7 keypoints.** `N` (nose), `LEar`, `REar`, `BC`
   (body center), `TB` (tail base), `TM` (tail middle), `TT` (tail tip).
   Target use: Open Field and Elevated Plus Maze (EPM) video
-  annotation. See `docs/schemas/rodent-pose.svg`.
+  annotation. Visual guide: `RodentAvatar` component. YOLO export:
+  `kpt_shape: [7, 3]`, `class: rodent`,
+  `flip_idx: [0, 2, 1, 3, 4, 5, 6]`. See `docs/schemas/rodent-pose.svg`.
 
 ## 3. Storage (filesystem, no DB)
 

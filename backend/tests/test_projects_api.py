@@ -68,3 +68,42 @@ def test_invalid_project_type_rejected(client, auth_headers):
         headers=auth_headers,
     )
     assert r.status_code == 422
+
+
+def test_project_defaults_to_infant_keypoint_schema(client, auth_headers):
+    p = _create(client, auth_headers)
+    assert p["keypoint_schema"] == "infant"
+
+
+def test_project_can_be_created_with_rodent_schema(client, auth_headers):
+    p = _create(client, auth_headers, name="rat1", keypoint_schema="rodent")
+    assert p["keypoint_schema"] == "rodent"
+    r = client.get(f"/api/v1/projects/{p['id']}", headers=auth_headers)
+    assert r.json()["keypoint_schema"] == "rodent"
+
+
+def test_invalid_keypoint_schema_rejected(client, auth_headers):
+    r = client.post(
+        "/api/v1/projects",
+        json={"name": "x", "type": "pose_detection", "keypoint_schema": "dog"},
+        headers=auth_headers,
+    )
+    assert r.status_code == 422
+
+
+def test_legacy_project_without_schema_field_reads_as_infant(
+    client, auth_headers, _isolated_data_dir
+):
+    """A pre-existing project.json lacking the field must still load (tolerant
+    read) and surface as the legacy default."""
+    import json
+
+    p = _create(client, auth_headers)
+    path = _isolated_data_dir / "projects" / str(p["id"]) / "project.json"
+    data = json.loads(path.read_text())
+    data.pop("keypoint_schema", None)
+    path.write_text(json.dumps(data))
+
+    r = client.get(f"/api/v1/projects/{p['id']}", headers=auth_headers)
+    assert r.status_code == 200
+    assert r.json()["keypoint_schema"] == "infant"

@@ -5,13 +5,15 @@ import { getProject } from '@/api/projects';
 import { getItem, listItems, saveAnnotation } from '@/api/items';
 import { FILES_BASE } from '@/lib/env';
 import BabyAvatar from '@/components/BabyAvatar';
+import RodentAvatar from '@/components/RodentAvatar';
 import { useConfirm } from '@/components/ui/ConfirmDialog';
 import {
-  COCO_KEYPOINTS,
   ORDERINGS,
-  SKELETON,
+  getSchemaBundle,
+  type Keypoint,
   type KeypointValue,
   type OrderMode,
+  type PoseSchema,
 } from '@/lib/keypoints';
 
 const ORDER_STORAGE_KEY = 'pose.orderMode';
@@ -38,15 +40,20 @@ type DragState =
       rectH: number;
     };
 
-function emptyKeypoints(): KeypointsMap {
+function emptyKeypoints(schemaKps: Keypoint[]): KeypointsMap {
   const m: KeypointsMap = {};
-  for (const kp of COCO_KEYPOINTS) m[kp.id] = null;
+  for (const kp of schemaKps) m[kp.id] = null;
   return m;
 }
 
-function translateAll(snapshot: KeypointsMap, dx: number, dy: number): KeypointsMap {
+function translateAll(
+  snapshot: KeypointsMap,
+  dx: number,
+  dy: number,
+  schemaKps: Keypoint[],
+): KeypointsMap {
   const next: KeypointsMap = {};
-  for (const kp of COCO_KEYPOINTS) {
+  for (const kp of schemaKps) {
     const v = snapshot[kp.id];
     next[kp.id] = v ? [Math.round(v[0] + dx), Math.round(v[1] + dy), v[2]] : null;
   }
@@ -101,13 +108,18 @@ export default function PoseAnnotatePage() {
     queryFn: () => listItems(projectId),
   });
 
+  const schema: PoseSchema = (projectQ.data?.keypoint_schema ?? 'infant') as PoseSchema;
+  const bundle = useMemo(() => getSchemaBundle(schema), [schema]);
+  const schemaKps = bundle.keypoints;
+  const N = schemaKps.length;
+
   const [currentKp, setCurrentKp] = useState(0);
-  const [keypoints, setKeypoints] = useState<KeypointsMap>(emptyKeypoints());
+  const [keypoints, setKeypoints] = useState<KeypointsMap>(() => emptyKeypoints(schemaKps));
   const [orderMode, setOrderMode] = useState<OrderMode>(() => {
     const saved = typeof window !== 'undefined' ? localStorage.getItem(ORDER_STORAGE_KEY) : null;
     return saved && saved in ORDERINGS ? (saved as OrderMode) : 'top';
   });
-  const sequence = ORDERINGS[orderMode];
+  const sequence = bundle.orderings[orderMode];
 
   useEffect(() => {
     localStorage.setItem(ORDER_STORAGE_KEY, orderMode);
@@ -152,7 +164,7 @@ export default function PoseAnnotatePage() {
 
   const save = useMutation({
     mutationFn: (kps: KeypointsMap) => {
-      const arr: KeypointValue[] = COCO_KEYPOINTS.map(
+      const arr: KeypointValue[] = schemaKps.map(
         (kp) => kps[kp.id] ?? ([0, 0, 0] as KeypointValue),
       );
       return saveAnnotation(currentItemId, { keypoints: arr });
@@ -172,9 +184,8 @@ export default function PoseAnnotatePage() {
       const existing = itemQ.data.annotation.value as
         | { keypoints?: KeypointValue[] }
         | undefined;
-      const m: KeypointsMap = {};
-      for (const kp of COCO_KEYPOINTS) m[kp.id] = null;
-      if (existing?.keypoints && existing.keypoints.length === 17) {
+      const m = emptyKeypoints(schemaKps);
+      if (existing?.keypoints && existing.keypoints.length === N) {
         existing.keypoints.forEach((v, i) => {
           m[i] = v[2] > 0 ? v : null;
         });
@@ -185,11 +196,11 @@ export default function PoseAnnotatePage() {
       return;
     }
 
-    setKeypoints(emptyKeypoints());
+    setKeypoints(emptyKeypoints(schemaKps));
     historyRef.current = [];
     setCurrentKp(sequence[0]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentItemId, itemQ.data?.id]);
+  }, [currentItemId, itemQ.data?.id, schema]);
 
   function pushHistory() {
     historyRef.current.push({ ...keypoints });
@@ -199,21 +210,21 @@ export default function PoseAnnotatePage() {
   function advanceAfterPlace(nextMap: KeypointsMap, placed: number) {
     const placedIdx = sequence.indexOf(placed);
     // Walk the chosen sequence forward looking for the next empty slot.
-    for (let i = 1; i <= 16; i++) {
-      const cand = sequence[(placedIdx + i) % 17];
+    for (let i = 1; i < N; i++) {
+      const cand = sequence[(placedIdx + i) % N];
       if (!nextMap[cand]) {
         setCurrentKp(cand);
         return;
       }
     }
     // Everything labeled — advance to the next position in sequence (or stay).
-    if (placedIdx >= 0 && placedIdx < 16) setCurrentKp(sequence[placedIdx + 1]);
+    if (placedIdx >= 0 && placedIdx < N - 1) setCurrentKp(sequence[placedIdx + 1]);
   }
 
   function stepCurrent(delta: 1 | -1) {
     setCurrentKp((k) => {
       const idx = sequence.indexOf(k);
-      const newIdx = ((idx === -1 ? 0 : idx) + delta + 17) % 17;
+      const newIdx = ((idx === -1 ? 0 : idx) + delta + N) % N;
       return sequence[newIdx];
     });
   }
@@ -274,7 +285,7 @@ export default function PoseAnnotatePage() {
       tone: 'danger',
       onConfirm: () => {
         pushHistory();
-        const m = emptyKeypoints();
+        const m = emptyKeypoints(schemaKps);
         setKeypoints(m);
         save.mutate(m);
         setCurrentKp(0);
@@ -286,14 +297,13 @@ export default function PoseAnnotatePage() {
     | { keypoints?: KeypointValue[] }
     | undefined)?.keypoints;
   const hasPrevPose =
-    !!prevPoseKps && prevPoseKps.length === 17 && prevPoseKps.some((v) => v[2] > 0);
+    !!prevPoseKps && prevPoseKps.length === N && prevPoseKps.some((v) => v[2] > 0);
 
   function copyPreviousPose() {
     if (!prevPoseKps) return;
     const apply = () => {
       pushHistory();
-      const m: KeypointsMap = {};
-      for (const kp of COCO_KEYPOINTS) m[kp.id] = null;
+      const m = emptyKeypoints(schemaKps);
       prevPoseKps.forEach((v, i) => {
         m[i] = v[2] > 0 ? v : null;
       });
@@ -336,7 +346,7 @@ export default function PoseAnnotatePage() {
     setKeypoints((prev) => {
       const clamped = clampGroupDelta(prev, dx, dy, img.naturalWidth, img.naturalHeight);
       if (clamped.dx === 0 && clamped.dy === 0) return prev;
-      return translateAll(prev, clamped.dx, clamped.dy);
+      return translateAll(prev, clamped.dx, clamped.dy, schemaKps);
     });
 
     if (saveDebounceRef.current !== null) clearTimeout(saveDebounceRef.current);
@@ -369,9 +379,10 @@ export default function PoseAnnotatePage() {
       if (e.key === 'n' || e.key === 'N') return stepCurrent(1);
       if (e.key === 'p' || e.key === 'P') return stepCurrent(-1);
 
-      // Number keys 1-9 jump to keypoint 1-9
+      // Number keys 1-9 jump to keypoint 1..min(9, N); ignored past the schema count
       if (e.key >= '1' && e.key <= '9') {
-        setCurrentKp(Number(e.key) - 1);
+        const target = Number(e.key) - 1;
+        if (target < N) setCurrentKp(target);
         return;
       }
 
@@ -424,7 +435,7 @@ export default function PoseAnnotatePage() {
   const imageUrl = payload.image_url;
   const fullUrl = imageUrl ? `${FILES_BASE}${imageUrl}` : null;
   const doneCount = Object.values(keypoints).filter((v) => v && v[2] > 0).length;
-  const isComplete = doneCount === 17;
+  const isComplete = doneCount === N;
 
   return (
     <div className="max-w-7xl mx-auto p-4 space-y-4">
@@ -457,7 +468,7 @@ export default function PoseAnnotatePage() {
                 : 'text-slate-500')
             }
           >
-            {doneCount}/17 keypoints {isComplete && '✓'}
+            {doneCount}/{N} keypoints {isComplete && '✓'}
           </span>
         </span>
       </header>
@@ -496,7 +507,7 @@ export default function PoseAnnotatePage() {
                   preserveAspectRatio="none"
                 >
                   {/* Skeleton lines (only between placed endpoints) */}
-                  {SKELETON.map(([a, b], i) => {
+                  {bundle.skeleton.map(([a, b], i) => {
                     const va = keypoints[a];
                     const vb = keypoints[b];
                     if (!va || !vb || va[2] === 0 || vb[2] === 0) return null;
@@ -513,7 +524,7 @@ export default function PoseAnnotatePage() {
                       />
                     );
                   })}
-                  {COCO_KEYPOINTS.map((kp) => {
+                  {schemaKps.map((kp) => {
                     const v = keypoints[kp.id];
                     if (!v || v[2] === 0) return null;
                     const isCurrent = kp.id === currentKp;
@@ -555,7 +566,7 @@ export default function PoseAnnotatePage() {
                         const dy = ((e.clientY - drag.startClientY) / drag.rectH) * drag.imgH;
                         const clamped = clampGroupDelta(drag.snapshot, dx, dy, drag.imgW, drag.imgH);
                         drag.moved = true;
-                        setKeypoints(translateAll(drag.snapshot, clamped.dx, clamped.dy));
+                        setKeypoints(translateAll(drag.snapshot, clamped.dx, clamped.dy, schemaKps));
                         return;
                       }
                       if (!v) return;
@@ -655,7 +666,7 @@ export default function PoseAnnotatePage() {
               </span>
               <div className="flex-1">
                 <p className="text-sm font-semibold text-emerald-800">
-                  All 17 keypoints placed
+                  All {N} keypoints placed
                 </p>
                 <p className="text-xs text-emerald-700">
                   Drag any point to adjust, or press{' '}
@@ -674,43 +685,53 @@ export default function PoseAnnotatePage() {
                   <span className="inline-block bg-red-500 text-white rounded px-2 mr-2 text-sm">
                     {currentKp + 1}
                   </span>
-                  {COCO_KEYPOINTS[currentKp].label}
+                  {schemaKps[currentKp]?.label ?? ''}
                 </p>
               </div>
-              <span className="text-sm text-slate-400">{doneCount}/17</span>
+              <span className="text-sm text-slate-400">{doneCount}/{N}</span>
             </div>
           )}
 
-          <div className="space-y-1">
-            <p className="text-xs text-slate-500 uppercase tracking-wide">Traversal order</p>
-            <div className="grid grid-cols-3 text-xs rounded border overflow-hidden">
-              {(['left', 'top', 'right'] as OrderMode[]).map((m) => (
-                <button
-                  key={m}
-                  type="button"
-                  onClick={() => setOrderMode(m)}
-                  className={
-                    'px-2 py-1.5 font-medium transition-colors ' +
-                    (orderMode === m
-                      ? 'bg-red-500 text-white'
-                      : 'bg-white text-slate-600 hover:bg-slate-50')
-                  }
-                >
-                  {ORDER_LABEL[m]}
-                </button>
-              ))}
+          {bundle.hasContourModes && (
+            <div className="space-y-1">
+              <p className="text-xs text-slate-500 uppercase tracking-wide">Traversal order</p>
+              <div className="grid grid-cols-3 text-xs rounded border overflow-hidden">
+                {(['left', 'top', 'right'] as OrderMode[]).map((m) => (
+                  <button
+                    key={m}
+                    type="button"
+                    onClick={() => setOrderMode(m)}
+                    className={
+                      'px-2 py-1.5 font-medium transition-colors ' +
+                      (orderMode === m
+                        ? 'bg-red-500 text-white'
+                        : 'bg-white text-slate-600 hover:bg-slate-50')
+                    }
+                  >
+                    {ORDER_LABEL[m]}
+                  </button>
+                ))}
+              </div>
+              <p className="text-xs text-slate-500">
+                Controls the "next keypoint" pointer. You can always click a
+                point on the image or the avatar to override it.
+              </p>
             </div>
-            <p className="text-xs text-slate-500">
-              Controls the "next keypoint" pointer. You can always click a
-              point on the image or the avatar to override it.
-            </p>
-          </div>
+          )}
 
-          <BabyAvatar
-            currentId={currentKp}
-            keypoints={keypoints}
-            onSelect={setCurrentKp}
-          />
+          {schema === 'rodent' ? (
+            <RodentAvatar
+              currentId={currentKp}
+              keypoints={keypoints}
+              onSelect={setCurrentKp}
+            />
+          ) : (
+            <BabyAvatar
+              currentId={currentKp}
+              keypoints={keypoints}
+              onSelect={setCurrentKp}
+            />
+          )}
 
           <button
             type="button"

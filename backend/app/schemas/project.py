@@ -6,7 +6,18 @@ from pydantic import BaseModel, ConfigDict, Field
 
 class ProjectType(str, enum.Enum):
     pose_detection = "pose_detection"
+    # Kept for backward compatibility with any pre-existing projects; the UI
+    # no longer offers it at creation time and there is no annotation UI for
+    # it. Safe to retire once we confirm no project.json carries it.
     image_segmentation = "image_segmentation"
+
+
+class KeypointSchema(str, enum.Enum):
+    """Pose keypoint layout for a project. Immutable after creation —
+    changing it would invalidate existing annotations. See SPEC §2."""
+
+    infant = "infant"  # 17 COCO keypoints, BabyAvatar guide
+    rodent = "rodent"  # 7 keypoints (N, LEar, REar, BC, TB, TM, TT) for OF / EPM
 
 
 class LabelBase(BaseModel):
@@ -29,6 +40,10 @@ class ProjectBase(BaseModel):
     name: str = Field(min_length=1, max_length=255)
     description: str | None = None
     type: ProjectType
+    # Default matches the only schema that existed before the field was
+    # introduced, so tolerant reads of older project.json files produce the
+    # original behavior.
+    keypoint_schema: KeypointSchema = KeypointSchema.infant
 
 
 class ProjectCreate(ProjectBase):

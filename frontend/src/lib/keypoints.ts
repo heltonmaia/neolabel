@@ -72,3 +72,80 @@ export const ORDERINGS: Record<OrderMode, readonly number[]> = {
   left:  [0, 1, 3, 5, 7, 9, 11, 13, 15, 16, 14, 12, 10, 8, 6, 4, 2],
   right: [0, 2, 4, 6, 8, 10, 12, 14, 16, 15, 13, 11, 9, 7, 5, 3, 1],
 };
+
+// ─── Rodent schema ────────────────────────────────────────────────────────
+// 7 keypoints for top-down rodent tracking (Open Field / Elevated Plus Maze).
+// Ids 0..6 → N, LEar, REar, BC, TB, TM, TT.
+
+export const RODENT_KEYPOINTS: Keypoint[] = [
+  { id: 0, name: 'nose',        label: 'Nose',        side: 'center' },
+  { id: 1, name: 'left_ear',    label: 'Left ear',    side: 'left'   },
+  { id: 2, name: 'right_ear',   label: 'Right ear',   side: 'right'  },
+  { id: 3, name: 'body_center', label: 'Body center', side: 'center' },
+  { id: 4, name: 'tail_base',   label: 'Tail base',   side: 'center' },
+  { id: 5, name: 'tail_middle', label: 'Tail middle', side: 'center' },
+  { id: 6, name: 'tail_tip',    label: 'Tail tip',    side: 'center' },
+];
+
+// Canvas 200x400 (same as COCO avatar). Rodent is viewed top-down and sits
+// centered on x=100 so ear L/R are mirror pairs.
+export const RODENT_AVATAR_POSITIONS: Record<number, [number, number]> = {
+  0: [100, 45],    // nose
+  1: [80,  72],    // left ear
+  2: [120, 72],    // right ear
+  3: [100, 160],   // body center
+  4: [100, 240],   // tail base
+  5: [100, 310],   // tail middle
+  6: [100, 370],   // tail tip
+};
+
+export const RODENT_SKELETON: [number, number][] = [
+  [0, 1], [0, 2],         // nose → ears
+  [1, 3], [2, 3],         // ears → body center
+  [3, 4], [4, 5], [5, 6], // body → tail
+];
+
+// Rodent is a linear head→tail walk; there's no meaningful contour variant,
+// so left/right map to the same top-down order. Kept as a full OrderMode map
+// so the annotate page stays schema-agnostic.
+const RODENT_ORDER: readonly number[] = [0, 1, 2, 3, 4, 5, 6];
+export const RODENT_ORDERINGS: Record<OrderMode, readonly number[]> = {
+  top:   RODENT_ORDER,
+  left:  RODENT_ORDER,
+  right: RODENT_ORDER,
+};
+
+// ─── Schema bundle ────────────────────────────────────────────────────────
+// Consumers branch on this instead of importing the raw constants, so every
+// schema-aware component sees the same API shape.
+
+export type PoseSchema = 'infant' | 'rodent';
+
+export interface PoseSchemaBundle {
+  keypoints: Keypoint[];
+  avatarPositions: Record<number, [number, number]>;
+  skeleton: [number, number][];
+  orderings: Record<OrderMode, readonly number[]>;
+  /** True if the schema has a meaningful left/right contour traversal. */
+  hasContourModes: boolean;
+}
+
+export const INFANT_SCHEMA: PoseSchemaBundle = {
+  keypoints: COCO_KEYPOINTS,
+  avatarPositions: AVATAR_POSITIONS,
+  skeleton: SKELETON,
+  orderings: ORDERINGS,
+  hasContourModes: true,
+};
+
+export const RODENT_SCHEMA: PoseSchemaBundle = {
+  keypoints: RODENT_KEYPOINTS,
+  avatarPositions: RODENT_AVATAR_POSITIONS,
+  skeleton: RODENT_SKELETON,
+  orderings: RODENT_ORDERINGS,
+  hasContourModes: false,
+};
+
+export function getSchemaBundle(schema: PoseSchema): PoseSchemaBundle {
+  return schema === 'rodent' ? RODENT_SCHEMA : INFANT_SCHEMA;
+}
