@@ -45,22 +45,35 @@ export default function LoginPage() {
           </div>
         </div>
 
-        <div className="flex items-center justify-center -my-8">
-          <PoseHero />
+        <div className="flex items-end justify-center gap-6 -my-4">
+          <figure className="flex flex-col items-center w-[200px]">
+            <PoseHero />
+            <figcaption className="mt-1 text-xs font-medium text-slate-600">
+              Infant · 17 keypoints
+            </figcaption>
+          </figure>
+          <figure className="flex flex-col items-center w-[150px]">
+            <RodentHero />
+            <figcaption className="mt-1 text-xs font-medium text-slate-600">
+              Rodent · 7 keypoints
+            </figcaption>
+          </figure>
         </div>
 
         <div className="max-w-md">
           <h2 className="text-2xl font-semibold text-slate-900 leading-snug">
-            Neonatal pose annotation, built for research.
+            Video-based pose annotation, built for research.
           </h2>
           <p className="mt-3 text-slate-700">
-            Label video frames with 17 COCO keypoints, assign work to annotators,
-            and export ready-to-train YOLO-pose datasets.
+            Label video frames, assign work to annotators, and export
+            ready-to-train datasets. Two keypoint schemas ship by default:
+            17-point infant pose (COCO) and 7-point rodent pose for
+            behavioral assays such as Open Field and Elevated Plus Maze.
           </p>
           <div className="mt-6 flex flex-wrap gap-2 text-xs">
-            <Chip>17 COCO keypoints</Chip>
+            <Chip>Infant · 17-pt COCO</Chip>
+            <Chip>Rodent · 7-pt (OF / EPM)</Chip>
             <Chip>FFmpeg frame extraction</Chip>
-            <Chip>Multi-annotator</Chip>
             <Chip>YOLO-pose export</Chip>
           </div>
         </div>
@@ -202,6 +215,69 @@ function PoseHero() {
         <path d="M185,115 Q212,160 210,200 L198,205 Q190,165 175,120 Z" fill="url(#silhouette)" />
         <path d="M110,210 Q100,275 108,325 L122,325 Q128,275 130,215 Z" fill="url(#silhouette)" />
         <path d="M170,210 Q180,275 172,325 L158,325 Q152,275 150,215 Z" fill="url(#silhouette)" />
+      </g>
+
+      {edges.map(([a, b], i) => (
+        <line
+          key={i}
+          x1={dots[a].x} y1={dots[a].y}
+          x2={dots[b].x} y2={dots[b].y}
+          stroke="#64748b" strokeWidth="1.2" strokeDasharray="3 3" opacity="0.65"
+        />
+      ))}
+
+      {dots.map((d, i) => (
+        <g key={i}>
+          <circle cx={d.x} cy={d.y} r="10" fill={d.c} opacity="0.25" />
+          <circle cx={d.x} cy={d.y} r="6" fill={d.c} stroke="white" strokeWidth="1.5" />
+        </g>
+      ))}
+    </svg>
+  );
+}
+
+// Decorative rodent (top-down) — 7 keypoints: nose, L/R ears, body center,
+// tail base/middle/tip. Behavioral-assay view (Open Field / EPM).
+function RodentHero() {
+  const dots = [
+    { x: 110, y: 30,  c: '#ec4899' },  // N
+    { x: 82,  y: 52,  c: '#ec4899' },  // LEar
+    { x: 138, y: 52,  c: '#ec4899' },  // REar
+    { x: 110, y: 140, c: '#3b82f6' },  // BC
+    { x: 110, y: 215, c: '#a855f7' },  // TB
+    { x: 110, y: 290, c: '#a855f7' },  // TM
+    { x: 110, y: 360, c: '#a855f7' },  // TT
+  ];
+  const edges: [number, number][] = [
+    [0, 1], [0, 2],
+    [1, 3], [2, 3],
+    [3, 4], [4, 5], [5, 6],
+  ];
+
+  return (
+    <svg viewBox="0 0 220 380" className="w-full drop-shadow-sm">
+      <defs>
+        <radialGradient id="halo-r" cx="50%" cy="45%" r="55%">
+          <stop offset="0%" stopColor="#ffffff" stopOpacity="0.9" />
+          <stop offset="100%" stopColor="#ffffff" stopOpacity="0" />
+        </radialGradient>
+        <linearGradient id="rodent-body" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="#e7e5e4" />
+          <stop offset="100%" stopColor="#d6d3d1" />
+        </linearGradient>
+      </defs>
+
+      <circle cx="110" cy="170" r="160" fill="url(#halo-r)" />
+
+      <g opacity="0.6">
+        <ellipse cx="86"  cy="50" rx="9"  ry="11" fill="url(#rodent-body)" />
+        <ellipse cx="134" cy="50" rx="9"  ry="11" fill="url(#rodent-body)" />
+        <ellipse cx="110" cy="140" rx="42" ry="68" fill="url(#rodent-body)" />
+        <ellipse cx="110" cy="62"  rx="28" ry="26" fill="url(#rodent-body)" />
+        <path
+          d="M110,210 Q104,252 113,294 Q120,332 108,362"
+          stroke="url(#rodent-body)" strokeWidth="6" fill="none" strokeLinecap="round"
+        />
       </g>
 
       {edges.map(([a, b], i) => (
