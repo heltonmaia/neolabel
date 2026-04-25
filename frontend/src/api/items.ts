@@ -86,13 +86,16 @@ export async function approveAllDone(projectId: number, sourceVideo?: string) {
   return data;
 }
 
+export type OutlierKind = 'lr_swap' | 'out_of_image' | 'impossible_anatomy';
+
+export interface Outlier {
+  kind: OutlierKind;
+  summary: string;          // human-readable, ready to display
+  details: Record<string, unknown>;
+}
+
 export interface OutlierItem extends Item {
-  outlier: {
-    kind: 'lr_swap';
-    mirror_pairs: string[];
-    coco_pairs: string[];
-    score: string;          // e.g. "4/6"
-  };
+  outliers: Outlier[];
 }
 
 export async function findOutliers(projectId: number) {

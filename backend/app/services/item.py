@@ -219,14 +219,146 @@ def _classify_pair(left_kp: list, right_kp: list) -> str | None:
     return "coco" if left_kp[0] > right_kp[0] else "mirror"
 
 
-def find_outliers(project_id: int, mirror_threshold: int = 3) -> list[dict]:
-    """Heuristic: items where ≥ `mirror_threshold` of the 6 paired keypoints
-    look swapped (left.x < right.x for a frontal/supine subject). One or two
-    mirror pairs are noise (or an unusual pose); a majority is a strong
-    signal of an L/R swap.
+def _vis(kp: list) -> bool:
+    return isinstance(kp, list) and len(kp) >= 3 and kp[2] in (1, 2)
 
-    Returns a list of item dicts plus per-item evidence. Caller decides what
-    to do with them — this is a soft suggestion, not a flag stored on disk.
+
+def _check_lr_swap(kps: list, mirror_threshold: int = 3) -> dict | None:
+    mirror_pairs: list[str] = []
+    coco_pairs: list[str] = []
+    for name, lid, rid in _LR_PAIRS:
+        verdict = _classify_pair(kps[lid], kps[rid])
+        if verdict == "mirror":
+            mirror_pairs.append(name)
+        elif verdict == "coco":
+            coco_pairs.append(name)
+    if len(mirror_pairs) < mirror_threshold:
+        return None
+    return {
+        "kind": "lr_swap",
+        "summary": (
+            f"{len(mirror_pairs)}/{len(_LR_PAIRS)} paired keypoints look mirrored "
+            f"({', '.join(mirror_pairs)}). Likely a left/right swap — but a "
+            "non-supine pose can also trigger this."
+        ),
+        "details": {
+            "mirror_pairs": mirror_pairs,
+            "coco_pairs": coco_pairs,
+            "score": f"{len(mirror_pairs)}/{len(_LR_PAIRS)}",
+        },
+    }
+
+
+def _check_out_of_image(kps: list, payload: dict) -> dict | None:
+    """Flag visible keypoints that fall outside the frame's bounds. Skipped
+    silently if width/height aren't in the payload (some legacy / external
+    imports don't set them)."""
+    w = payload.get("width")
+    h = payload.get("height")
+    if not isinstance(w, int) or not isinstance(h, int) or w <= 0 or h <= 0:
+        return None
+    bad: list[dict] = []
+    for kp_def in COCO_KP_NAMES:
+        idx, name = kp_def
+        if idx >= len(kps):
+            continue
+        kp = kps[idx]
+        if not _vis(kp):
+            continue
+        x, y = kp[0], kp[1]
+        if x < 0 or x > w or y < 0 or y > h:
+            bad.append({"name": name, "x": x, "y": y})
+    if not bad:
+        return None
+    parts = ", ".join(b["name"] for b in bad)
+    return {
+        "kind": "out_of_image",
+        "summary": (
+            f"{len(bad)} keypoint{'s' if len(bad) != 1 else ''} land outside "
+            f"the {w}×{h} frame ({parts})."
+        ),
+        "details": {"bad_keypoints": bad, "frame": {"width": w, "height": h}},
+    }
+
+
+def _midpoint(kps: list, lid: int, rid: int) -> tuple[float, float] | None:
+    l, r = kps[lid], kps[rid]
+    if not (_vis(l) and _vis(r)):
+        return None
+    return ((l[0] + r[0]) / 2.0, (l[1] + r[1]) / 2.0)
+
+
+def _check_impossible_anatomy(kps: list) -> dict | None:
+    """Project the head→ankles axis and verify shoulder/hip/knee fall in
+    the expected order along it. Works for any orientation (head-up,
+    head-down, sideways) because the axis is derived from the data, not
+    assumed. Needs nose + at least one ankle pair to anchor the axis."""
+    nose = kps[0] if len(kps) > 0 else None
+    mid_an = _midpoint(kps, 15, 16)
+    if not (nose and _vis(nose) and mid_an):
+        return None
+    ax = mid_an[0] - nose[0]
+    ay = mid_an[1] - nose[1]
+    axis_sq = ax * ax + ay * ay
+    if axis_sq < 1:  # nose and ankles essentially overlap — meaningless axis
+        return None
+
+    def proj(p: tuple[float, float]) -> float:
+        return ((p[0] - nose[0]) * ax + (p[1] - nose[1]) * ay) / axis_sq
+
+    landmarks: list[tuple[str, float]] = [("nose", 0.0)]
+    for label, lid, rid in (
+        ("shoulder", 5, 6),
+        ("hip", 11, 12),
+        ("knee", 13, 14),
+    ):
+        m = _midpoint(kps, lid, rid)
+        if m is not None:
+            landmarks.append((label, proj(m)))
+    landmarks.append(("ankle", 1.0))
+    if len(landmarks) < 3:
+        return None
+    # Walk pairwise; record any out-of-order pair. Tolerance avoids tiny
+    # numerical wobbles flagging healthy poses (e.g. shoulder slightly above
+    # the nose-ankle line counts as in-order, not a violation).
+    EPS = 0.02
+    violations: list[str] = []
+    for i in range(len(landmarks) - 1):
+        a_name, a_t = landmarks[i]
+        b_name, b_t = landmarks[i + 1]
+        if a_t > b_t + EPS:
+            violations.append(f"{b_name} ahead of {a_name} along the body axis")
+    if not violations:
+        return None
+    return {
+        "kind": "impossible_anatomy",
+        "summary": (
+            "Body landmarks are out of head→ankle order: "
+            + "; ".join(violations) + ". Could be a swap, or a curled/folded pose."
+        ),
+        "details": {"violations": violations},
+    }
+
+
+# COCO-17 keypoint names paired with their id, used by the out_of_image
+# detail formatter. (Order is the canonical COCO order.)
+COCO_KP_NAMES: list[tuple[int, str]] = [
+    (0, "nose"),
+    (1, "left_eye"), (2, "right_eye"),
+    (3, "left_ear"), (4, "right_ear"),
+    (5, "left_shoulder"), (6, "right_shoulder"),
+    (7, "left_elbow"), (8, "right_elbow"),
+    (9, "left_wrist"), (10, "right_wrist"),
+    (11, "left_hip"), (12, "right_hip"),
+    (13, "left_knee"), (14, "right_knee"),
+    (15, "left_ankle"), (16, "right_ankle"),
+]
+
+
+def find_outliers(project_id: int) -> list[dict]:
+    """Run all heuristics over every annotated item; return one entry per
+    item that has at least one issue. Soft signal — this never modifies
+    anything; the caller (admin/owner UI) picks each one to review.
     """
     out: list[dict] = []
     for item in storage.list_items(project_id):
@@ -238,29 +370,25 @@ def find_outliers(project_id: int, mirror_threshold: int = 3) -> list[dict]:
         kps = (ann.get("value") or {}).get("keypoints") or []
         if len(kps) < 17:
             continue
-        mirror_pairs: list[str] = []
-        coco_pairs: list[str] = []
-        for name, lid, rid in _LR_PAIRS:
-            verdict = _classify_pair(kps[lid], kps[rid])
-            if verdict == "mirror":
-                mirror_pairs.append(name)
-            elif verdict == "coco":
-                coco_pairs.append(name)
-        if len(mirror_pairs) < mirror_threshold:
+        payload = item.get("payload") or {}
+        outliers = [
+            check for check in (
+                _check_lr_swap(kps),
+                _check_out_of_image(kps, payload),
+                _check_impossible_anatomy(kps),
+            )
+            if check is not None
+        ]
+        if not outliers:
             continue
         out.append({
             "id": item["id"],
             "project_id": item["project_id"],
-            "payload": item.get("payload") or {},
+            "payload": payload,
             "status": item["status"],
             "assigned_to": item.get("assigned_to"),
             "review_note": item.get("review_note"),
-            "outlier": {
-                "kind": "lr_swap",
-                "mirror_pairs": mirror_pairs,
-                "coco_pairs": coco_pairs,
-                "score": f"{len(mirror_pairs)}/{len(_LR_PAIRS)}",
-            },
+            "outliers": outliers,
         })
     return out
 

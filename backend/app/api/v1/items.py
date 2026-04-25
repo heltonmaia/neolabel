@@ -161,7 +161,10 @@ def list_outliers(project_id: int, current_user: CurrentUser) -> dict:
     (subject prone or sideways), so the response is informational only."""
     _require_project_for_owner(project_id, current_user)
     items = item_service.find_outliers(project_id)
-    return {"items": items, "checks_run": ["lr_swap"]}
+    return {
+        "items": items,
+        "checks_run": ["lr_swap", "out_of_image", "impossible_anatomy"],
+    }
 
 
 @router.put("/items/{item_id}/annotation", response_model=AnnotationRead, tags=["items"])

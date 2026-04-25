@@ -351,6 +351,10 @@ def _mirror_kps() -> list[list[int]]:
     return kps
 
 
+def _kinds(item: dict) -> list[str]:
+    return [o["kind"] for o in item.get("outliers", [])]
+
+
 def test_outliers_flags_full_mirror_only(client, auth_headers, project):
     """An item with all six pairs mirrored gets flagged; a clean COCO item
     doesn't."""
@@ -384,11 +388,119 @@ def test_outliers_flags_full_mirror_only(client, auth_headers, project):
     assert iid_mirror in flagged_ids
     assert iid_clean not in flagged_ids
     flagged = next(it for it in body["items"] if it["id"] == iid_mirror)
-    assert flagged["outlier"]["kind"] == "lr_swap"
-    assert flagged["outlier"]["score"] == "6/6"
-    assert set(flagged["outlier"]["mirror_pairs"]) == {
+    assert "lr_swap" in _kinds(flagged)
+    swap = next(o for o in flagged["outliers"] if o["kind"] == "lr_swap")
+    assert swap["details"]["score"] == "6/6"
+    assert set(swap["details"]["mirror_pairs"]) == {
         "shoulder", "elbow", "wrist", "hip", "knee", "ankle",
     }
+
+
+def test_outliers_flags_out_of_image(client, auth_headers, project):
+    """A keypoint outside the frame's width/height bounds is flagged."""
+    pid = project["id"]
+    client.post(
+        f"/api/v1/projects/{pid}/items/bulk",
+        json={"items": [{"payload": {"image_url": "/x.jpg", "width": 640, "height": 640}}]},
+        headers=auth_headers,
+    )
+    iid = client.get(
+        f"/api/v1/projects/{pid}/items", headers=auth_headers
+    ).json()["items"][0]["id"]
+    bad = _coco_kps()
+    bad[9] = [700, 100, 2]   # left_wrist past the right edge (640)
+    bad[16] = [50, -20, 2]   # right_ankle above the top edge
+    client.put(
+        f"/api/v1/items/{iid}/annotation",
+        json={"value": {"keypoints": bad}},
+        headers=auth_headers,
+    )
+    flagged = client.get(
+        f"/api/v1/projects/{pid}/items/outliers", headers=auth_headers
+    ).json()["items"]
+    assert len(flagged) == 1 and flagged[0]["id"] == iid
+    ooi = next(o for o in flagged[0]["outliers"] if o["kind"] == "out_of_image")
+    names = {b["name"] for b in ooi["details"]["bad_keypoints"]}
+    assert names == {"left_wrist", "right_ankle"}
+
+
+def test_outliers_skip_out_of_image_when_dims_missing(client, auth_headers, project):
+    """No width/height in payload → out_of_image isn't checked at all."""
+    pid = project["id"]
+    client.post(
+        f"/api/v1/projects/{pid}/items/bulk",
+        json={"items": [{"payload": {"image_url": "/x.jpg"}}]},
+        headers=auth_headers,
+    )
+    iid = client.get(
+        f"/api/v1/projects/{pid}/items", headers=auth_headers
+    ).json()["items"][0]["id"]
+    bad = _coco_kps()
+    bad[9] = [99999, 99999, 2]
+    client.put(
+        f"/api/v1/items/{iid}/annotation",
+        json={"value": {"keypoints": bad}},
+        headers=auth_headers,
+    )
+    flagged = client.get(
+        f"/api/v1/projects/{pid}/items/outliers", headers=auth_headers
+    ).json()["items"]
+    # The wild keypoint will trigger anatomy or lr_swap, but never out_of_image.
+    if flagged:
+        assert "out_of_image" not in _kinds(flagged[0])
+
+
+def test_outliers_flags_impossible_anatomy(client, auth_headers, project):
+    """Hip placed above shoulders along the head→ankle axis flips the order
+    and is flagged as impossible_anatomy."""
+    pid = project["id"]
+    client.post(
+        f"/api/v1/projects/{pid}/items/bulk",
+        json={"items": [{"payload": {"image_url": "/x.jpg"}}]},
+        headers=auth_headers,
+    )
+    iid = client.get(
+        f"/api/v1/projects/{pid}/items", headers=auth_headers
+    ).json()["items"][0]["id"]
+    # Build a head-up subject (nose at y=50, ankles at y=300) but place hips
+    # ABOVE the shoulders — head→ankle order becomes nose, hip, shoulder, knee,
+    # ankle, which violates the expected progression.
+    kps = _coco_kps()
+    # shoulders at y=200, hips at y=120 (above shoulders)
+    kps[5] = [140, 200, 2]; kps[6] = [60, 200, 2]
+    kps[11] = [130, 120, 2]; kps[12] = [70, 120, 2]
+    client.put(
+        f"/api/v1/items/{iid}/annotation",
+        json={"value": {"keypoints": kps}},
+        headers=auth_headers,
+    )
+    flagged = client.get(
+        f"/api/v1/projects/{pid}/items/outliers", headers=auth_headers
+    ).json()["items"]
+    assert len(flagged) == 1
+    assert "impossible_anatomy" in _kinds(flagged[0])
+
+
+def test_outliers_clean_subject_passes_anatomy(client, auth_headers, project):
+    """A normal head-up supine subject doesn't trigger impossible_anatomy."""
+    pid = project["id"]
+    client.post(
+        f"/api/v1/projects/{pid}/items/bulk",
+        json={"items": [{"payload": {"image_url": "/x.jpg", "width": 640, "height": 640}}]},
+        headers=auth_headers,
+    )
+    iid = client.get(
+        f"/api/v1/projects/{pid}/items", headers=auth_headers
+    ).json()["items"][0]["id"]
+    client.put(
+        f"/api/v1/items/{iid}/annotation",
+        json={"value": {"keypoints": _coco_kps()}},
+        headers=auth_headers,
+    )
+    flagged = client.get(
+        f"/api/v1/projects/{pid}/items/outliers", headers=auth_headers
+    ).json()["items"]
+    assert flagged == []
 
 
 def test_outliers_ignores_pending_and_partial(client, auth_headers, project):

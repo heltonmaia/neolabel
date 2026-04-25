@@ -1870,11 +1870,11 @@ export default function ProjectDetailPage() {
                       ? `${sv.source_video} · frame ${sv.frame_index}`
                       : `#${it.id}`;
                     const annotator = annotatorLabel(it.assigned_to) ?? 'unassigned';
-                    const desc =
-                      it.outlier.kind === 'lr_swap'
-                        ? `${it.outlier.score} paired keypoints look mirrored (${it.outlier.mirror_pairs.join(', ')}). ` +
-                          `Likely a left/right swap — but a non-supine pose can also trigger this.`
-                        : 'Anomaly detected.';
+                    const KIND_LABEL: Record<string, string> = {
+                      lr_swap: 'L/R swap',
+                      out_of_image: 'Out of frame',
+                      impossible_anatomy: 'Body order',
+                    };
                     return (
                       <li key={it.id} className="py-3 flex items-start gap-3">
                         {sv.image_url && (
@@ -1891,13 +1891,20 @@ export default function ProjectDetailPage() {
                             <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-600">
                               {annotator}
                             </span>
-                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-50 text-amber-800 ring-1 ring-amber-200">
-                              {it.outlier.kind === 'lr_swap'
-                                ? `L/R swap ${it.outlier.score}`
-                                : 'anomaly'}
-                            </span>
+                            {it.outliers.map((o) => (
+                              <span
+                                key={o.kind}
+                                className="text-[10px] px-1.5 py-0.5 rounded bg-amber-50 text-amber-800 ring-1 ring-amber-200"
+                              >
+                                {KIND_LABEL[o.kind] ?? o.kind}
+                              </span>
+                            ))}
                           </div>
-                          <p className="text-xs text-slate-600 mt-1">{desc}</p>
+                          {it.outliers.map((o) => (
+                            <p key={o.kind} className="text-xs text-slate-600 mt-1">
+                              {o.summary}
+                            </p>
+                          ))}
                         </div>
                         <Link
                           to={`/projects/${projectId}/annotate/${it.id}`}
@@ -1916,7 +1923,7 @@ export default function ProjectDetailPage() {
               <span>
                 {outliersQ.data
                   ? `${outliersQ.data.items.length} suspect item${outliersQ.data.items.length === 1 ? '' : 's'} · ` +
-                    `heuristic: L/R swap (≥3 of 6 paired keypoints disagree with COCO orientation)`
+                    `checks: ${outliersQ.data.checks_run.join(', ')}`
                   : ''}
               </span>
               <button
