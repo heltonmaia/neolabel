@@ -122,8 +122,10 @@ export default function ProjectDetailPage() {
   const [videoQuery, setVideoQuery] = useState('');
   const [videoAssigneeFilter, setVideoAssigneeFilter] = useState<number | ''>('');
 
-  // Items filters / view
-  const [statusFilter, setStatusFilter] = useState<'all' | ItemStatus>('all');
+  // Items filters / view. 'needs_revision' is a virtual sub-bucket of
+  // in_progress (those carrying a review_note from a send-back).
+  type ItemFilter = 'all' | ItemStatus | 'needs_revision';
+  const [statusFilter, setStatusFilter] = useState<ItemFilter>('all');
   const [sourceFilter, setSourceFilter] = useState<string>('');
   // '' = all, number = a specific user id, 'unassigned' = items with no assignee.
   // Admin-only (the user list endpoint is admin-only too).
@@ -260,14 +262,19 @@ export default function ProjectDetailPage() {
   const isPose = projectQ.data?.type === 'pose_detection';
 
   const statusCounts = useMemo(() => {
-    const c: Record<ItemStatus | 'all', number> = {
+    const c: Record<ItemStatus | 'all' | 'needs_revision', number> = {
       all: items.length,
       pending: 0,
       in_progress: 0,
       done: 0,
       reviewed: 0,
+      needs_revision: 0,
     };
-    for (const i of items) c[i.status]++;
+    for (const i of items) {
+      c[i.status]++;
+      // Overlapping bucket — also counted under in_progress above.
+      if (i.status === 'in_progress' && i.review_note) c.needs_revision++;
+    }
     return c;
   }, [items]);
 
@@ -314,7 +321,11 @@ export default function ProjectDetailPage() {
 
   const filteredItems = useMemo(() => {
     return items.filter((i) => {
-      if (statusFilter !== 'all' && i.status !== statusFilter) return false;
+      if (statusFilter === 'needs_revision') {
+        if (!(i.status === 'in_progress' && i.review_note)) return false;
+      } else if (statusFilter !== 'all' && i.status !== statusFilter) {
+        return false;
+      }
       if (sourceFilter) {
         const sv = (i.payload as { source_video?: string }).source_video;
         if (sv !== sourceFilter) return false;
@@ -1375,31 +1386,40 @@ export default function ProjectDetailPage() {
         <div className="flex items-center gap-2 flex-wrap border-b pb-3">
           {(
             [
-              ['all', 'All'],
-              ['pending', 'Pending'],
-              ['in_progress', 'In progress'],
-              ['done', 'Done'],
-              ['reviewed', 'Reviewed'],
+              ['all', 'All', false] as const,
+              ['pending', 'Pending', false] as const,
+              ['in_progress', 'In progress', false] as const,
+              // Sub-bucket of in_progress: only render when there's at least one
+              // item that was sent back, otherwise the pill is just noise.
+              ['needs_revision', 'Needs revision', true] as const,
+              ['done', 'Done', false] as const,
+              ['reviewed', 'Reviewed', false] as const,
             ] as const
-          ).map(([key, label]) => (
-            <button
-              key={key}
-              onClick={() => {
-                setStatusFilter(key);
-                setItemsVisible(50);
-              }}
-              className={`text-xs px-2.5 py-1 rounded-full border ${
-                statusFilter === key
-                  ? 'bg-blue-600 text-white border-blue-600'
-                  : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
-              }`}
-            >
-              {label}{' '}
-              <span className={statusFilter === key ? 'opacity-80' : 'text-slate-400'}>
-                {statusCounts[key]}
-              </span>
-            </button>
-          ))}
+          )
+            .filter(([key]) => key !== 'needs_revision' || statusCounts.needs_revision > 0)
+            .map(([key, label, accent]) => (
+              <button
+                key={key}
+                onClick={() => {
+                  setStatusFilter(key);
+                  setItemsVisible(50);
+                }}
+                className={`text-xs px-2.5 py-1 rounded-full border ${
+                  statusFilter === key
+                    ? accent
+                      ? 'bg-amber-500 text-white border-amber-500'
+                      : 'bg-blue-600 text-white border-blue-600'
+                    : accent
+                      ? 'bg-amber-50 text-amber-800 border-amber-300 hover:bg-amber-100'
+                      : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                }`}
+              >
+                {label}{' '}
+                <span className={statusFilter === key ? 'opacity-80' : accent ? 'text-amber-600' : 'text-slate-400'}>
+                  {statusCounts[key]}
+                </span>
+              </button>
+            ))}
           <div className="flex items-center gap-2 flex-wrap ml-auto">
             {isAdmin &&
               itemAnnotators.ids.length + (itemAnnotators.hasUnassigned ? 1 : 0) > 1 && (
@@ -1522,28 +1542,61 @@ export default function ProjectDetailPage() {
                       );
                     })()}
                   </div>
-                  {(() => {
-                    const needsRevision =
-                      i.status === 'in_progress' && !!i.review_note;
-                    return (
-                      <span
-                        className={`absolute top-1 right-1 text-[10px] px-1.5 py-0.5 rounded ${
-                          needsRevision
-                            ? 'bg-amber-600 text-white font-semibold ring-1 ring-amber-300'
-                            : i.status === 'done'
-                              ? 'bg-emerald-500 text-white'
-                              : i.status === 'in_progress'
-                                ? 'bg-amber-500 text-white'
-                                : i.status === 'reviewed'
-                                  ? 'bg-blue-500 text-white'
-                                  : 'bg-white/90 text-slate-600'
-                        }`}
-                        title={needsRevision ? `Needs revision: ${i.review_note}` : undefined}
-                      >
-                        {needsRevision ? 'needs revision' : i.status.replace('_', ' ')}
-                      </span>
-                    );
-                  })()}
+                  {/* Stacked badges: annotation state on top, review state
+                      (when applicable) just below — same two-axis idea as the
+                      list view, vertical to fit the corner. */}
+                  <div className="absolute top-1 right-1 flex flex-col items-end gap-0.5">
+                    <span
+                      className={`text-[10px] px-1.5 py-0.5 rounded ${
+                        i.status === 'pending'
+                          ? 'bg-white/90 text-slate-600'
+                          : i.status === 'in_progress'
+                            ? 'bg-amber-500 text-white'
+                            : 'bg-emerald-500 text-white'
+                      }`}
+                    >
+                      {i.status === 'pending'
+                        ? 'pending'
+                        : i.status === 'in_progress'
+                          ? 'in progress'
+                          : 'done'}
+                    </span>
+                    {(() => {
+                      const needsRevision =
+                        i.status === 'in_progress' && !!i.review_note;
+                      if (i.status === 'reviewed') {
+                        return (
+                          <span
+                            className="text-[10px] px-1.5 py-0.5 rounded bg-blue-500 text-white font-medium"
+                            title="Approved"
+                          >
+                            approved
+                          </span>
+                        );
+                      }
+                      if (i.status === 'done') {
+                        return (
+                          <span
+                            className="text-[10px] px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 ring-1 ring-blue-300"
+                            title="Awaiting admin/owner approval"
+                          >
+                            awaiting
+                          </span>
+                        );
+                      }
+                      if (needsRevision) {
+                        return (
+                          <span
+                            className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500 text-white font-semibold"
+                            title={`Sent back: ${i.review_note}`}
+                          >
+                            needs revision
+                          </span>
+                        );
+                      }
+                      return null;
+                    })()}
+                  </div>
                 </Link>
               );
             })}
