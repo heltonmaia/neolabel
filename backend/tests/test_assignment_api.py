@@ -47,7 +47,7 @@ def _neuro_id(client, admin_headers, username: str) -> int:
     return next(u["id"] for u in users if u["username"] == username)
 
 
-def _fake_extract(pid, _source, _name, _fps, rotation=0, assignee_id=None):
+def _fake_extract(pid, _source, _name, _fps, rotation=0, assignee_id=None, resize_mode="pad"):
     """Bypass ffmpeg: create 3 frames directly through the item service."""
     from app.core import storage
     from app.schemas.item import ItemStatus

@@ -192,6 +192,23 @@ def load_annotation(pid: int, iid: int, uid: int) -> dict | None:
     return _read_json(_ann_path(pid, iid, uid), None)
 
 
+def find_any_annotation_for_item(pid: int, iid: int) -> dict | None:
+    """Return any annotation file that exists for this item, regardless of
+    which user it's saved under. If multiple files exist (e.g. legacy data
+    from before the assignee-canonicalization, or an item that was
+    reassigned after being annotated), return the most recently updated.
+    """
+    d = _annotations_dir(pid)
+    if not d.exists():
+        return None
+    candidates = [_read_json(p, None) for p in d.glob(f"{iid}__*.json")]
+    candidates = [c for c in candidates if c]
+    if not candidates:
+        return None
+    candidates.sort(key=lambda a: a.get("updated_at", ""), reverse=True)
+    return candidates[0]
+
+
 def save_annotation(pid: int, annotation: dict) -> None:
     _write_json(_ann_path(pid, annotation["item_id"], annotation["annotator_id"]), annotation)
 

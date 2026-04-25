@@ -50,6 +50,14 @@ def _require_item_access(item: dict, user):
     raise HTTPException(status.HTTP_404_NOT_FOUND, "Item not found")
 
 
+def _annotation_uid(item: dict, user) -> int:
+    """Resolve which annotator id to read/write under for this item. Use the
+    item's assignee when set so admin/owner edits land on the same file the
+    assignee sees (assignee is the canonical author). Falls back to the
+    current user when the item is unassigned."""
+    return item.get("assigned_to") or user.id
+
+
 @router.post(
     "/projects/{project_id}/items/bulk",
     status_code=status.HTTP_201_CREATED,
@@ -85,7 +93,9 @@ def get_item(item_id: int, current_user: CurrentUser) -> ItemDetail:
     if not item:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Item not found")
     _require_item_access(item, current_user)
-    annotation = item_service.get_annotation(item["project_id"], item["id"], current_user.id)
+    annotation = item_service.get_annotation(
+        item["project_id"], item["id"], _annotation_uid(item, current_user)
+    )
     return ItemDetail(
         id=item["id"],
         project_id=item["project_id"],
@@ -137,7 +147,7 @@ def upsert_annotation(
     if not item:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Item not found")
     _require_item_access(item, current_user)
-    return item_service.upsert_annotation(item, current_user.id, data)
+    return item_service.upsert_annotation(item, _annotation_uid(item, current_user), data)
 
 
 def _stream_zip(stream, size: int, filename: str) -> StreamingResponse:

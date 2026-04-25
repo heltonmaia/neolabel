@@ -148,7 +148,13 @@ def get(item_id: int) -> dict | None:
 
 
 def get_annotation(project_id: int, item_id: int, annotator_id: int) -> AnnotationRead | None:
+    # Fast path: the requested annotator's file. Falls back to scanning the
+    # item's annotation directory so admin/owner viewers (and reassigned
+    # items where the annotation lives under the previous assignee's id)
+    # still surface the existing work.
     d = storage.load_annotation(project_id, item_id, annotator_id)
+    if d is None:
+        d = storage.find_any_annotation_for_item(project_id, item_id)
     return AnnotationRead.model_validate(d) if d else None
 
 
