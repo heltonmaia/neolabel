@@ -169,12 +169,21 @@ export default function PoseAnnotatePage() {
   const confirm = useConfirm();
 
   const items = itemsQ.data?.items ?? [];
-  const idx = useMemo(
-    () => items.findIndex((i) => i.id === currentItemId),
-    [items, currentItemId],
+  // Cohort: items sharing the current item's assignee. Prev/Next walks only
+  // within this cohort so navigating an annotator's queue never silently
+  // crosses into another annotator's items (or admin sees what the assignee
+  // would see). Treat null/undefined as "unassigned" — same group.
+  const cohortAssignee = itemQ.data?.assigned_to ?? null;
+  const cohort = useMemo(
+    () => items.filter((i) => (i.assigned_to ?? null) === cohortAssignee),
+    [items, cohortAssignee],
   );
-  const prev = idx > 0 ? items[idx - 1] : null;
-  const next = idx >= 0 && idx < items.length - 1 ? items[idx + 1] : null;
+  const idx = useMemo(
+    () => cohort.findIndex((i) => i.id === currentItemId),
+    [cohort, currentItemId],
+  );
+  const prev = idx > 0 ? cohort[idx - 1] : null;
+  const next = idx >= 0 && idx < cohort.length - 1 ? cohort[idx + 1] : null;
 
   // Kept warm so the "Copy previous pose" button can act instantly.
   // Reuses the same cache key as itemQ, so backtracking is free.
@@ -481,7 +490,7 @@ export default function PoseAnnotatePage() {
           </div>
         </div>
         <span className="text-sm text-slate-500 flex items-center gap-2">
-          {idx >= 0 ? `${idx + 1} / ${items.length}` : ''} ·
+          {idx >= 0 ? `${idx + 1} / ${cohort.length}` : ''} ·
           <span
             className={
               'px-2 py-0.5 rounded-full font-semibold ' +
