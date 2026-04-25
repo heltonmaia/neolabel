@@ -5,6 +5,7 @@ import { createProject, deleteProject, listProjects, KeypointSchema } from '@/ap
 import { listUsers } from '@/api/users';
 import { me } from '@/api/auth';
 import { useAuth } from '@/stores/auth';
+import { useConfirm } from '@/components/ui/ConfirmDialog';
 
 const SCHEMAS: { value: KeypointSchema; label: string; hint: string }[] = [
   { value: 'infant', label: 'Infant pose', hint: '17 COCO keypoints' },
@@ -34,6 +35,7 @@ export default function ProjectsPage() {
 
   const meQ = useQuery({ queryKey: ['me'], queryFn: me });
   const isAdmin = meQ.data?.role === 'admin';
+  const confirmDialog = useConfirm();
 
   const [ownerFilter, setOwnerFilter] = useState<number | 'all'>('all');
 
@@ -164,7 +166,16 @@ export default function ProjectsPage() {
                 </Link>
                 {(isAdmin || p.owner_id === meQ.data?.id) && (
                   <button
-                    onClick={() => deleteMut.mutate(p.id)}
+                    onClick={() =>
+                      confirmDialog.ask({
+                        title: 'Delete project?',
+                        message: `"${p.name}" — this removes the project and every item, annotation, video and frame it contains. This cannot be undone.`,
+                        confirmLabel: 'Delete project',
+                        tone: 'danger',
+                        requireTypedConfirmation: p.name,
+                        onConfirm: () => deleteMut.mutate(p.id),
+                      })
+                    }
                     className="text-sm text-red-600 hover:underline ml-4"
                   >
                     Delete
@@ -175,6 +186,7 @@ export default function ProjectsPage() {
           })}
         </ul>
       )}
+      {confirmDialog.dialog}
     </div>
   );
 }
