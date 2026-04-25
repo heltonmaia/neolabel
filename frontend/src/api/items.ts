@@ -9,6 +9,7 @@ export interface Item {
   status: ItemStatus;
   created_at: string;
   assigned_to: number | null;
+  review_note?: string | null;
 }
 
 export interface Annotation {
@@ -60,6 +61,18 @@ export async function deleteItem(itemId: number) {
 
 export async function clearAnnotation(itemId: number) {
   await api.delete(`/items/${itemId}/annotation`);
+}
+
+export async function reviewItem(
+  itemId: number,
+  approve: boolean,
+  note?: string,
+) {
+  const { data } = await api.post<Item>(`/items/${itemId}/review`, {
+    approve,
+    note: note ?? null,
+  });
+  return data;
 }
 
 export async function deleteAnnotatedItems(projectId: number) {

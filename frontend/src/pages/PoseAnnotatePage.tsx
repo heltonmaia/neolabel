@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useParams } from 'react-router-dom';
+import { me } from '@/api/auth';
 import { getProject } from '@/api/projects';
-import { getItem, listItems, saveAnnotation } from '@/api/items';
+import { getItem, listItems, reviewItem, saveAnnotation } from '@/api/items';
 import { FILES_BASE } from '@/lib/env';
 import BabyAvatar from '@/components/BabyAvatar';
 import RodentAvatar from '@/components/RodentAvatar';
@@ -120,6 +121,7 @@ export default function PoseAnnotatePage() {
     queryKey: ['items', projectId],
     queryFn: () => listItems(projectId),
   });
+  const meQ = useQuery({ queryKey: ['me'], queryFn: me });
 
   const schema: PoseSchema = (projectQ.data?.keypoint_schema ?? 'infant') as PoseSchema;
   const bundle = useMemo(() => getSchemaBundle(schema), [schema]);
@@ -205,6 +207,29 @@ export default function PoseAnnotatePage() {
       qc.invalidateQueries({ queryKey: ['item', currentItemId] });
     },
   });
+
+  // Curation: admin or project owner can approve / send back. Only meaningful
+  // when the item is at least 'done' — partial work isn't reviewable.
+  const canReview = !!meQ.data && !!projectQ.data && (
+    meQ.data.role === 'admin' || meQ.data.id === projectQ.data.owner_id
+  );
+  const [showSendBack, setShowSendBack] = useState(false);
+  const [reviewNoteInput, setReviewNoteInput] = useState('');
+  const reviewMut = useMutation({
+    mutationFn: (p: { approve: boolean; note?: string }) =>
+      reviewItem(currentItemId, p.approve, p.note),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['items', projectId] });
+      qc.invalidateQueries({ queryKey: ['item', currentItemId] });
+      setShowSendBack(false);
+      setReviewNoteInput('');
+    },
+  });
+  // Reset the send-back form when navigating items.
+  useEffect(() => {
+    setShowSendBack(false);
+    setReviewNoteInput('');
+  }, [currentItemId]);
 
   // Load saved annotation (if any) or reset to empty when the item changes.
   // Template reuse is now manual — see copyPreviousPose below.
@@ -392,7 +417,8 @@ export default function PoseAnnotatePage() {
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if ((e.target as HTMLElement)?.tagName === 'INPUT') return;
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA') return;
 
       // Suspend shortcuts while the confirm dialog is open (hook handles Esc).
       if (confirm.isOpen) return;
@@ -443,11 +469,23 @@ export default function PoseAnnotatePage() {
       if (e.key === 'u' || e.key === 'U') return undo();
       if (e.key === 'Backspace') return clearCurrent();
       if (e.key === 'c' || e.key === 'C') return clearAll();
+
+      // Curation (admin/owner only, only meaningful for done/reviewed items).
+      if (canReview && itemQ.data && (itemQ.data.status === 'done' || itemQ.data.status === 'reviewed')) {
+        if ((e.key === 'a' || e.key === 'A') && itemQ.data.status !== 'reviewed') {
+          reviewMut.mutate({ approve: true });
+          return;
+        }
+        if (e.key === 'r' || e.key === 'R') {
+          setShowSendBack(true);
+          return;
+        }
+      }
     }
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentKp, keypoints, prev, next, cursor, confirm.isOpen]);
+  }, [currentKp, keypoints, prev, next, cursor, confirm.isOpen, canReview, itemQ.data?.status]);
 
   if (itemQ.isLoading || projectQ.isLoading) return <p className="p-6">Loading…</p>;
   if (!itemQ.data || !projectQ.data) return <p className="p-6">Not found.</p>;
@@ -701,6 +739,98 @@ export default function PoseAnnotatePage() {
             + (isComplete ? 'ring-2 ring-emerald-400' : '')
           }
         >
+          {/* Needs-revision banner: assignee (and admin) sees what to fix. */}
+          {item.review_note && (
+            <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm">
+              <p className="font-semibold text-amber-900">Needs revision</p>
+              <p className="text-amber-800 mt-0.5">{item.review_note}</p>
+            </div>
+          )}
+
+          {/* Review panel: admin or project owner can approve / send back. */}
+          {canReview && (item.status === 'done' || item.status === 'reviewed') && (
+            <div
+              className={
+                'rounded-lg border p-3 space-y-2 ' +
+                (item.status === 'reviewed'
+                  ? 'border-blue-300 bg-blue-50'
+                  : 'border-emerald-300 bg-emerald-50')
+              }
+            >
+              <div className="flex items-center justify-between gap-2">
+                <span
+                  className={
+                    'text-sm font-semibold ' +
+                    (item.status === 'reviewed' ? 'text-blue-900' : 'text-emerald-900')
+                  }
+                >
+                  {item.status === 'reviewed' ? '✓ Reviewed' : 'Ready to review'}
+                </span>
+                <span className="text-[10px] text-slate-500 uppercase tracking-wide">
+                  <kbd className="border rounded px-1 bg-white">A</kbd> approve ·{' '}
+                  <kbd className="border rounded px-1 bg-white">R</kbd> send back
+                </span>
+              </div>
+              {!showSendBack && (
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => reviewMut.mutate({ approve: true })}
+                    disabled={reviewMut.isPending || item.status === 'reviewed'}
+                    className="px-3 py-2 rounded bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Approve
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowSendBack(true)}
+                    disabled={reviewMut.isPending}
+                    className="px-3 py-2 rounded border border-amber-500 text-amber-700 bg-white text-sm font-medium hover:bg-amber-50 disabled:opacity-50"
+                  >
+                    Send back
+                  </button>
+                </div>
+              )}
+              {showSendBack && (
+                <div className="space-y-2 pt-2 border-t border-slate-200">
+                  <textarea
+                    value={reviewNoteInput}
+                    onChange={(e) => setReviewNoteInput(e.target.value)}
+                    placeholder="Optional note for the annotator (what to fix)…"
+                    rows={2}
+                    autoFocus
+                    className="w-full text-sm border rounded px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-amber-300"
+                  />
+                  <div className="flex gap-2 justify-end">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowSendBack(false);
+                        setReviewNoteInput('');
+                      }}
+                      className="text-xs px-3 py-1.5 border rounded text-slate-600 hover:bg-slate-50"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        reviewMut.mutate({
+                          approve: false,
+                          note: reviewNoteInput.trim() || undefined,
+                        })
+                      }
+                      disabled={reviewMut.isPending}
+                      className="text-xs px-3 py-1.5 rounded bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-50"
+                    >
+                      Send back
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
           {isComplete ? (
             <div className="flex items-center gap-3 bg-emerald-50 border border-emerald-200 rounded px-3 py-2">
               <span className="flex-none w-8 h-8 rounded-full bg-emerald-500 text-white flex items-center justify-center text-lg font-bold">

@@ -1449,19 +1449,28 @@ export default function ProjectDetailPage() {
                       );
                     })()}
                   </div>
-                  <span
-                    className={`absolute top-1 right-1 text-[10px] px-1.5 py-0.5 rounded ${
-                      i.status === 'done'
-                        ? 'bg-emerald-500 text-white'
-                        : i.status === 'in_progress'
-                          ? 'bg-amber-500 text-white'
-                          : i.status === 'reviewed'
-                            ? 'bg-blue-500 text-white'
-                            : 'bg-white/90 text-slate-600'
-                    }`}
-                  >
-                    {i.status.replace('_', ' ')}
-                  </span>
+                  {(() => {
+                    const needsRevision =
+                      i.status === 'in_progress' && !!i.review_note;
+                    return (
+                      <span
+                        className={`absolute top-1 right-1 text-[10px] px-1.5 py-0.5 rounded ${
+                          needsRevision
+                            ? 'bg-amber-600 text-white font-semibold ring-1 ring-amber-300'
+                            : i.status === 'done'
+                              ? 'bg-emerald-500 text-white'
+                              : i.status === 'in_progress'
+                                ? 'bg-amber-500 text-white'
+                                : i.status === 'reviewed'
+                                  ? 'bg-blue-500 text-white'
+                                  : 'bg-white/90 text-slate-600'
+                        }`}
+                        title={needsRevision ? `Needs revision: ${i.review_note}` : undefined}
+                      >
+                        {needsRevision ? 'needs revision' : i.status.replace('_', ' ')}
+                      </span>
+                    );
+                  })()}
                 </Link>
               );
             })}
@@ -1515,19 +1524,28 @@ export default function ProjectDetailPage() {
                     </span>
                   );
                 })()}
-                <span
-                  className={`text-xs px-2 py-0.5 rounded capitalize ${
-                    i.status === 'done'
-                      ? 'bg-emerald-100 text-emerald-700'
-                      : i.status === 'in_progress'
-                        ? 'bg-amber-100 text-amber-700'
-                        : i.status === 'reviewed'
-                          ? 'bg-blue-100 text-blue-700'
-                          : 'bg-slate-100 text-slate-600'
-                  }`}
-                >
-                  {i.status.replace('_', ' ')}
-                </span>
+                {(() => {
+                  const needsRevision =
+                    i.status === 'in_progress' && !!i.review_note;
+                  return (
+                    <span
+                      className={`text-xs px-2 py-0.5 rounded capitalize ${
+                        needsRevision
+                          ? 'bg-amber-100 text-amber-800 font-semibold ring-1 ring-amber-300'
+                          : i.status === 'done'
+                            ? 'bg-emerald-100 text-emerald-700'
+                            : i.status === 'in_progress'
+                              ? 'bg-amber-100 text-amber-700'
+                              : i.status === 'reviewed'
+                                ? 'bg-blue-100 text-blue-700'
+                                : 'bg-slate-100 text-slate-600'
+                      }`}
+                      title={needsRevision ? `Needs revision: ${i.review_note}` : undefined}
+                    >
+                      {needsRevision ? 'needs revision' : i.status.replace('_', ' ')}
+                    </span>
+                  );
+                })()}
                 {(i.status === 'done' ||
                   i.status === 'in_progress' ||
                   i.status === 'reviewed') && (
