@@ -1090,44 +1090,60 @@ export default function ProjectDetailPage() {
           { frames: 0, done: 0 },
         );
         return (
-        <section className="bg-white p-4 rounded-lg shadow space-y-3">
-          <div className="flex items-center justify-between gap-4 flex-wrap">
-            <div>
-              <h2 className="font-semibold">
-                Videos{' '}
-                <span className="text-sm text-slate-500 font-normal">
-                  ({filtered.length}
-                  {filtered.length !== all.length && ` of ${all.length}`})
-                </span>
-              </h2>
-              <p className="text-xs text-slate-500">
-                Reassigning moves every frame of a video to the selected user.
-              </p>
-            </div>
-            <div className="flex items-center gap-2 flex-wrap">
-              <input
-                type="search"
-                value={videoQuery}
-                onChange={(e) => setVideoQuery(e.target.value)}
-                placeholder="Search video…"
-                className="border rounded px-2 py-1 text-sm"
-              />
-              <select
-                value={videoAssigneeFilter}
-                onChange={(e) =>
-                  setVideoAssigneeFilter(e.target.value ? Number(e.target.value) : '')
-                }
-                className="border rounded px-2 py-1 text-sm"
+        <section className="bg-white rounded-lg shadow">
+          <details open className="group">
+            <summary className="flex items-center justify-between gap-3 cursor-pointer px-4 py-3 select-none hover:bg-slate-50 rounded-lg">
+              <div className="min-w-0">
+                <h2 className="font-semibold">
+                  Videos{' '}
+                  <span className="text-sm text-slate-500 font-normal">
+                    ({filtered.length}
+                    {filtered.length !== all.length && ` of ${all.length}`})
+                  </span>
+                </h2>
+                <p className="text-xs text-slate-500">
+                  Reassigning moves every frame of a video to the selected user.
+                </p>
+              </div>
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className="shrink-0 text-slate-400 transition-transform group-open:rotate-180"
               >
-                <option value="">All annotators</option>
-                {(usersQ.data ?? []).map((u) => (
-                  <option key={u.id} value={u.id}>
-                    {u.username}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
+                <polyline points="6 9 12 15 18 9" />
+              </svg>
+            </summary>
+            <div className="px-4 pb-4 pt-3 border-t space-y-3">
+              <div className="flex items-center gap-2 flex-wrap justify-end">
+                <input
+                  type="search"
+                  value={videoQuery}
+                  onChange={(e) => setVideoQuery(e.target.value)}
+                  placeholder="Search video…"
+                  className="border rounded px-2 py-1 text-sm"
+                />
+                <select
+                  value={videoAssigneeFilter}
+                  onChange={(e) =>
+                    setVideoAssigneeFilter(e.target.value ? Number(e.target.value) : '')
+                  }
+                  className="border rounded px-2 py-1 text-sm"
+                >
+                  <option value="">All annotators</option>
+                  {(usersQ.data ?? []).map((u) => (
+                    <option key={u.id} value={u.id}>
+                      {u.username}
+                    </option>
+                  ))}
+                </select>
+              </div>
           {filtered.length === 0 ? (
             <p className="text-sm text-slate-500 py-2">No videos match.</p>
           ) : (
@@ -1236,6 +1252,8 @@ export default function ProjectDetailPage() {
           </table>
           </div>
           )}
+            </div>
+          </details>
         </section>
         );
       })()}
