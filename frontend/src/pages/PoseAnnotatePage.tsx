@@ -138,11 +138,13 @@ export default function PoseAnnotatePage() {
     localStorage.setItem(ORDER_STORAGE_KEY, orderMode);
   }, [orderMode]);
 
-  // Drop stale dims as soon as the URL changes, so the SVG never paints
-  // the new frame's keypoints with the previous image's geometry.
-  useEffect(() => {
-    setImgDims(null);
-  }, [currentItemId]);
+  // Don't reset imgDims when the item changes — the <img> onLoad will
+  // overwrite it once the new image is decoded. An earlier version reset
+  // here, which raced with onLoad: for cached images the load event fires
+  // very fast (possibly before this effect would run), so setImgDims(null)
+  // would clobber the dims set by onLoad and the SVG stayed hidden. All
+  // frames in a pose project are 640x640, so leaving the previous dims in
+  // place for a frame is invisible.
   const [imgDims, setImgDims] = useState<ImgDims | null>(null);
   const historyRef = useRef<KeypointsMap[]>([]);
   const imgRef = useRef<HTMLImageElement>(null);
