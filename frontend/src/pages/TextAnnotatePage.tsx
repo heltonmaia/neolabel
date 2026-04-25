@@ -25,9 +25,17 @@ export default function TextAnnotatePage() {
   });
 
   const items = itemsQ.data?.items ?? [];
-  const idx = useMemo(() => items.findIndex((i) => i.id === currentItemId), [items, currentItemId]);
-  const prev = idx > 0 ? items[idx - 1] : null;
-  const next = idx >= 0 && idx < items.length - 1 ? items[idx + 1] : null;
+  // Cohort: items sharing the current item's assignee. Prev/Next stays
+  // within one annotator's queue (matches what the assignee filter on the
+  // project page would show).
+  const cohortAssignee = itemQ.data?.assigned_to ?? null;
+  const cohort = useMemo(
+    () => items.filter((i) => (i.assigned_to ?? null) === cohortAssignee),
+    [items, cohortAssignee],
+  );
+  const idx = useMemo(() => cohort.findIndex((i) => i.id === currentItemId), [cohort, currentItemId]);
+  const prev = idx > 0 ? cohort[idx - 1] : null;
+  const next = idx >= 0 && idx < cohort.length - 1 ? cohort[idx + 1] : null;
 
   const save = useMutation({
     mutationFn: (value: Record<string, unknown>) => saveAnnotation(currentItemId, value),
