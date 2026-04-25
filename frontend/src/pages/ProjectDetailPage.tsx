@@ -1314,15 +1314,33 @@ export default function ProjectDetailPage() {
       })()}
 
       {/* Items */}
-      <section className="bg-white p-4 rounded-lg shadow space-y-3">
-        <div className="flex items-center justify-between gap-3 flex-wrap">
-          <h2 className="font-semibold">
-            Items{' '}
-            <span className="text-sm text-slate-500 font-normal">
-              ({filteredItems.length}
-              {filteredItems.length !== items.length && ` of ${items.length}`})
-            </span>
-          </h2>
+      <section className="bg-white rounded-lg shadow">
+        <details open className="group">
+          <summary className="flex items-center justify-between gap-3 cursor-pointer px-4 py-3 select-none hover:bg-slate-50 rounded-lg">
+            <h2 className="font-semibold">
+              Items{' '}
+              <span className="text-sm text-slate-500 font-normal">
+                ({filteredItems.length}
+                {filteredItems.length !== items.length && ` of ${items.length}`})
+              </span>
+            </h2>
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className="shrink-0 text-slate-400 transition-transform group-open:rotate-180"
+            >
+              <polyline points="6 9 12 15 18 9" />
+            </svg>
+          </summary>
+          <div className="px-4 pb-4 pt-3 border-t space-y-3">
+        <div className="flex items-center justify-end gap-2 flex-wrap">
           <div className="flex items-center gap-2 flex-wrap">
             {isAdmin && items.some((i) => i.status === 'done' || i.status === 'reviewed') && (
               <button
@@ -1685,6 +1703,8 @@ export default function ProjectDetailPage() {
             </button>
           </div>
         )}
+          </div>
+        </details>
       </section>
 
       {exportProgress && (
