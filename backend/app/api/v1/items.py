@@ -153,6 +153,17 @@ def approve_all_done_items(
     return {"approved": count}
 
 
+@router.get("/projects/{project_id}/items/outliers", tags=["items"])
+def list_outliers(project_id: int, current_user: CurrentUser) -> dict:
+    """Suggest items whose annotation looks suspicious — e.g. probable L/R
+    swap. Soft signal, never modifies anything; admin/owner picks each one
+    to review manually. False positives are expected on unusual poses
+    (subject prone or sideways), so the response is informational only."""
+    _require_project_for_owner(project_id, current_user)
+    items = item_service.find_outliers(project_id)
+    return {"items": items, "checks_run": ["lr_swap"]}
+
+
 @router.put("/items/{item_id}/annotation", response_model=AnnotationRead, tags=["items"])
 def upsert_annotation(
     item_id: int, data: AnnotationUpsert, current_user: CurrentUser

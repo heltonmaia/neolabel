@@ -86,6 +86,22 @@ export async function approveAllDone(projectId: number, sourceVideo?: string) {
   return data;
 }
 
+export interface OutlierItem extends Item {
+  outlier: {
+    kind: 'lr_swap';
+    mirror_pairs: string[];
+    coco_pairs: string[];
+    score: string;          // e.g. "4/6"
+  };
+}
+
+export async function findOutliers(projectId: number) {
+  const { data } = await api.get<{ items: OutlierItem[]; checks_run: string[] }>(
+    `/projects/${projectId}/items/outliers`,
+  );
+  return data;
+}
+
 export async function deleteAnnotatedItems(projectId: number) {
   const { data } = await api.post<{ deleted: number }>(
     `/projects/${projectId}/items/delete-annotated`,

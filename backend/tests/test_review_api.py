@@ -321,6 +321,159 @@ def test_approve_all_done_requires_owner_or_admin(
     assert r.status_code == 404
 
 
+def _coco_kps() -> list[list[int]]:
+    """17 keypoints with left_*.x > right_*.x — COCO anatomical convention
+    for a frontal/supine subject (subject's left = viewer's right)."""
+    # nose centered; eyes/ears we leave at center (skipped by classifier)
+    base = [[100, 50, 2], [100, 45, 2], [100, 45, 2], [100, 48, 2], [100, 48, 2]]
+    pairs = [
+        # (left_x, right_x, y) for shoulder, elbow, wrist, hip, knee, ankle
+        (140, 60, 100),  # shoulder
+        (150, 50, 130),  # elbow
+        (160, 40, 160),  # wrist
+        (130, 70, 200),  # hip
+        (130, 70, 250),  # knee
+        (130, 70, 300),  # ankle
+    ]
+    rest = []
+    for lx, rx, y in pairs:
+        rest.append([lx, y, 2])
+        rest.append([rx, y, 2])
+    return base + rest
+
+
+def _mirror_kps() -> list[list[int]]:
+    """Same shape but with the L/R sides swapped — should be flagged."""
+    kps = _coco_kps()
+    # Swap each left/right pair (5↔6, 7↔8, ..., 15↔16).
+    for left_id, right_id in [(5, 6), (7, 8), (9, 10), (11, 12), (13, 14), (15, 16)]:
+        kps[left_id], kps[right_id] = kps[right_id], kps[left_id]
+    return kps
+
+
+def test_outliers_flags_full_mirror_only(client, auth_headers, project):
+    """An item with all six pairs mirrored gets flagged; a clean COCO item
+    doesn't."""
+    pid = project["id"]
+    client.post(
+        f"/api/v1/projects/{pid}/items/bulk",
+        json={"items": [{"payload": {"image_url": "/a.jpg"}}, {"payload": {"image_url": "/b.jpg"}}]},
+        headers=auth_headers,
+    )
+    items = client.get(
+        f"/api/v1/projects/{pid}/items", headers=auth_headers
+    ).json()["items"]
+    iid_clean, iid_mirror = items[0]["id"], items[1]["id"]
+    client.put(
+        f"/api/v1/items/{iid_clean}/annotation",
+        json={"value": {"keypoints": _coco_kps()}},
+        headers=auth_headers,
+    )
+    client.put(
+        f"/api/v1/items/{iid_mirror}/annotation",
+        json={"value": {"keypoints": _mirror_kps()}},
+        headers=auth_headers,
+    )
+
+    r = client.get(
+        f"/api/v1/projects/{pid}/items/outliers", headers=auth_headers
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    flagged_ids = [it["id"] for it in body["items"]]
+    assert iid_mirror in flagged_ids
+    assert iid_clean not in flagged_ids
+    flagged = next(it for it in body["items"] if it["id"] == iid_mirror)
+    assert flagged["outlier"]["kind"] == "lr_swap"
+    assert flagged["outlier"]["score"] == "6/6"
+    assert set(flagged["outlier"]["mirror_pairs"]) == {
+        "shoulder", "elbow", "wrist", "hip", "knee", "ankle",
+    }
+
+
+def test_outliers_ignores_pending_and_partial(client, auth_headers, project):
+    """Outlier scan only considers items the annotator has finished."""
+    pid = project["id"]
+    client.post(
+        f"/api/v1/projects/{pid}/items/bulk",
+        json={"items": [{"payload": {"image_url": "/a.jpg"}}]},
+        headers=auth_headers,
+    )
+    iid = client.get(
+        f"/api/v1/projects/{pid}/items", headers=auth_headers
+    ).json()["items"][0]["id"]
+    # Save partial mirror (only first 5 keypoints) — status stays in_progress.
+    partial = [[0, 0, 0]] * 17
+    partial[5] = [60, 100, 2]
+    partial[6] = [140, 100, 2]
+    client.put(
+        f"/api/v1/items/{iid}/annotation",
+        json={"value": {"keypoints": partial}},
+        headers=auth_headers,
+    )
+    r = client.get(
+        f"/api/v1/projects/{pid}/items/outliers", headers=auth_headers
+    )
+    assert r.json()["items"] == []
+
+
+def test_outliers_threshold_3_of_6(client, auth_headers, project):
+    """An item with exactly 3 mirror pairs is flagged; with 2, it isn't."""
+    pid = project["id"]
+    client.post(
+        f"/api/v1/projects/{pid}/items/bulk",
+        json={
+            "items": [
+                {"payload": {"image_url": "/a.jpg"}},
+                {"payload": {"image_url": "/b.jpg"}},
+            ]
+        },
+        headers=auth_headers,
+    )
+    items = client.get(
+        f"/api/v1/projects/{pid}/items", headers=auth_headers
+    ).json()["items"]
+
+    # 3 mirror pairs: shoulder, elbow, wrist swapped — rest stay COCO.
+    three = _coco_kps()
+    for lid, rid in [(5, 6), (7, 8), (9, 10)]:
+        three[lid], three[rid] = three[rid], three[lid]
+    client.put(
+        f"/api/v1/items/{items[0]['id']}/annotation",
+        json={"value": {"keypoints": three}},
+        headers=auth_headers,
+    )
+
+    # 2 mirror pairs: shoulder, elbow only.
+    two = _coco_kps()
+    for lid, rid in [(5, 6), (7, 8)]:
+        two[lid], two[rid] = two[rid], two[lid]
+    client.put(
+        f"/api/v1/items/{items[1]['id']}/annotation",
+        json={"value": {"keypoints": two}},
+        headers=auth_headers,
+    )
+
+    flagged = client.get(
+        f"/api/v1/projects/{pid}/items/outliers", headers=auth_headers
+    ).json()["items"]
+    flagged_ids = [it["id"] for it in flagged]
+    assert items[0]["id"] in flagged_ids
+    assert items[1]["id"] not in flagged_ids
+
+
+def test_outliers_requires_owner_or_admin(
+    client, auth_headers, second_user_headers, project
+):
+    iid = _make_done_item(client, project["id"], auth_headers)
+    assert iid
+    r = client.get(
+        f"/api/v1/projects/{project['id']}/items/outliers",
+        headers=second_user_headers,
+    )
+    assert r.status_code == 404
+
+
 def test_partial_save_after_send_back_keeps_note(client, auth_headers, project):
     """A partial save (still in_progress) shouldn't drop the note — annotator
     is mid-fix, the prompt should stay until they finish."""

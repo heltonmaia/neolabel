@@ -191,6 +191,80 @@ def delete_annotated(project_id: int) -> int:
     return count
 
 
+# Pairs of (label, left_id, right_id) used by the L/R-swap heuristic. Eyes
+# and ears are intentionally excluded — they sit too close to the centerline
+# on small heads to be reliable orientation evidence (and one is often
+# occluded). Pose schemas without these ids will simply skip them.
+_LR_PAIRS: list[tuple[str, int, int]] = [
+    ("shoulder", 5, 6),
+    ("elbow", 7, 8),
+    ("wrist", 9, 10),
+    ("hip", 11, 12),
+    ("knee", 13, 14),
+    ("ankle", 15, 16),
+]
+
+
+def _classify_pair(left_kp: list, right_kp: list) -> str | None:
+    """COCO convention puts left_*.x > right_*.x for a frontal subject (left
+    is anatomically the subject's left, which is the viewer's right). Returns
+    'mirror' if the saved pair disagrees, 'coco' if it matches, None if a
+    side is missing/unlabeled or both share the same x."""
+    def vis(kp: list) -> bool:
+        return isinstance(kp, list) and len(kp) >= 3 and kp[2] in (1, 2)
+    if not vis(left_kp) or not vis(right_kp):
+        return None
+    if left_kp[0] == right_kp[0]:
+        return None
+    return "coco" if left_kp[0] > right_kp[0] else "mirror"
+
+
+def find_outliers(project_id: int, mirror_threshold: int = 3) -> list[dict]:
+    """Heuristic: items where ≥ `mirror_threshold` of the 6 paired keypoints
+    look swapped (left.x < right.x for a frontal/supine subject). One or two
+    mirror pairs are noise (or an unusual pose); a majority is a strong
+    signal of an L/R swap.
+
+    Returns a list of item dicts plus per-item evidence. Caller decides what
+    to do with them — this is a soft suggestion, not a flag stored on disk.
+    """
+    out: list[dict] = []
+    for item in storage.list_items(project_id):
+        if item.get("status") not in (ItemStatus.done.value, ItemStatus.reviewed.value):
+            continue
+        ann = storage.find_any_annotation_for_item(project_id, item["id"])
+        if not ann:
+            continue
+        kps = (ann.get("value") or {}).get("keypoints") or []
+        if len(kps) < 17:
+            continue
+        mirror_pairs: list[str] = []
+        coco_pairs: list[str] = []
+        for name, lid, rid in _LR_PAIRS:
+            verdict = _classify_pair(kps[lid], kps[rid])
+            if verdict == "mirror":
+                mirror_pairs.append(name)
+            elif verdict == "coco":
+                coco_pairs.append(name)
+        if len(mirror_pairs) < mirror_threshold:
+            continue
+        out.append({
+            "id": item["id"],
+            "project_id": item["project_id"],
+            "payload": item.get("payload") or {},
+            "status": item["status"],
+            "assigned_to": item.get("assigned_to"),
+            "review_note": item.get("review_note"),
+            "outlier": {
+                "kind": "lr_swap",
+                "mirror_pairs": mirror_pairs,
+                "coco_pairs": coco_pairs,
+                "score": f"{len(mirror_pairs)}/{len(_LR_PAIRS)}",
+            },
+        })
+    return out
+
+
 def approve_all_done(project_id: int, source_video: str | None = None) -> int:
     """Mark every 'done' item as 'reviewed' (optionally restricted to one
     source video). Items already 'reviewed' are skipped silently. Returns
