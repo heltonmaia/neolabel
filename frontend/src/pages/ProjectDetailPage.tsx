@@ -15,8 +15,10 @@ import {
   clearAnnotation,
   deleteAnnotatedItems,
   deleteItem,
+  findOutliers,
   listItems,
   type ItemStatus,
+  type OutlierItem,
 } from '@/api/items';
 import { listUsers } from '@/api/users';
 import { deleteVideo, importCocoPose, listVideos, reassignVideo, uploadVideo } from '@/api/videos';
@@ -243,6 +245,16 @@ export default function ProjectDetailPage() {
   const removeProject = useMutation({
     mutationFn: () => deleteProject(projectId),
     onSuccess: () => navigate('/projects'),
+  });
+
+  // Outlier finder: lazy query, only fires while the modal is open. Soft
+  // signal — the user picks each suspect to review or dismiss manually.
+  const [showOutliers, setShowOutliers] = useState(false);
+  const outliersQ = useQuery({
+    queryKey: ['outliers', projectId],
+    queryFn: () => findOutliers(projectId),
+    enabled: showOutliers,
+    staleTime: 30_000,
   });
 
   // Bulk-approve every 'done' frame of one video. Tracks which video is in
@@ -1371,6 +1383,15 @@ export default function ProjectDetailPage() {
                 {removeAnnotated.isPending ? 'Deleting…' : 'Delete annotated'}
               </button>
             )}
+            {isAdmin && items.some((i) => i.status === 'done' || i.status === 'reviewed') && (
+              <button
+                onClick={() => setShowOutliers(true)}
+                className="text-sm text-slate-700 border border-slate-300 rounded px-3 py-1.5 hover:bg-slate-50"
+                title="Scan annotated items for likely L/R swaps. Soft suggestion — pick each one to review."
+              >
+                Find outliers
+              </button>
+            )}
             {pendingItem && (
               <Link
                 to={`/projects/${projectId}/annotate/${pendingItem.id}`}
@@ -1794,6 +1815,122 @@ export default function ProjectDetailPage() {
           </div>
         </details>
       </section>
+
+      {/* Outliers modal — soft-flagged items, never blocking. */}
+      {showOutliers && (
+        <div
+          role="dialog"
+          aria-label="Possible annotation outliers"
+          className="fixed inset-0 z-40 bg-black/40 flex items-center justify-center p-4"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setShowOutliers(false);
+          }}
+        >
+          <div className="bg-white rounded-lg shadow-2xl w-full max-w-3xl max-h-[85vh] flex flex-col">
+            <header className="px-5 py-3 border-b flex items-center justify-between">
+              <div>
+                <h3 className="font-semibold text-slate-800">Possible outliers</h3>
+                <p className="text-xs text-slate-500">
+                  Suggestions only — open each one to verify and correct, or
+                  ignore. False positives can happen on non-supine poses.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowOutliers(false)}
+                className="text-slate-400 hover:text-slate-700 text-2xl leading-none px-1"
+                aria-label="Close"
+              >
+                ×
+              </button>
+            </header>
+            <div className="overflow-y-auto p-4">
+              {outliersQ.isLoading && (
+                <p className="text-sm text-slate-500 py-6 text-center">
+                  Scanning {items.length} items…
+                </p>
+              )}
+              {outliersQ.isError && (
+                <p className="text-sm text-red-600 py-4">
+                  Couldn't scan — try again.
+                </p>
+              )}
+              {outliersQ.data && outliersQ.data.items.length === 0 && (
+                <p className="text-sm text-emerald-700 py-6 text-center">
+                  ✓ No suspect items found. Heuristic ran on{' '}
+                  {items.filter((i) => i.status === 'done' || i.status === 'reviewed').length}{' '}
+                  annotated items.
+                </p>
+              )}
+              {outliersQ.data && outliersQ.data.items.length > 0 && (
+                <ul className="divide-y">
+                  {outliersQ.data.items.map((it: OutlierItem) => {
+                    const sv = (it.payload as { source_video?: string; frame_index?: number; image_url?: string });
+                    const label = sv.source_video
+                      ? `${sv.source_video} · frame ${sv.frame_index}`
+                      : `#${it.id}`;
+                    const annotator = annotatorLabel(it.assigned_to) ?? 'unassigned';
+                    const desc =
+                      it.outlier.kind === 'lr_swap'
+                        ? `${it.outlier.score} paired keypoints look mirrored (${it.outlier.mirror_pairs.join(', ')}). ` +
+                          `Likely a left/right swap — but a non-supine pose can also trigger this.`
+                        : 'Anomaly detected.';
+                    return (
+                      <li key={it.id} className="py-3 flex items-start gap-3">
+                        {sv.image_url && (
+                          <img
+                            src={`${FILES_BASE}${sv.image_url}`}
+                            className="w-16 h-16 object-cover rounded border shrink-0 bg-slate-100"
+                            alt=""
+                            loading="lazy"
+                          />
+                        )}
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-mono text-sm truncate">{label}</span>
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-600">
+                              {annotator}
+                            </span>
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-50 text-amber-800 ring-1 ring-amber-200">
+                              {it.outlier.kind === 'lr_swap'
+                                ? `L/R swap ${it.outlier.score}`
+                                : 'anomaly'}
+                            </span>
+                          </div>
+                          <p className="text-xs text-slate-600 mt-1">{desc}</p>
+                        </div>
+                        <Link
+                          to={`/projects/${projectId}/annotate/${it.id}`}
+                          onClick={() => setShowOutliers(false)}
+                          className="shrink-0 self-center text-xs px-3 py-1.5 rounded bg-slate-900 text-white hover:bg-slate-800"
+                        >
+                          Open
+                        </Link>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </div>
+            <footer className="px-5 py-3 border-t flex items-center justify-between text-xs text-slate-500">
+              <span>
+                {outliersQ.data
+                  ? `${outliersQ.data.items.length} suspect item${outliersQ.data.items.length === 1 ? '' : 's'} · ` +
+                    `heuristic: L/R swap (≥3 of 6 paired keypoints disagree with COCO orientation)`
+                  : ''}
+              </span>
+              <button
+                type="button"
+                onClick={() => outliersQ.refetch()}
+                disabled={outliersQ.isFetching}
+                className="px-2.5 py-1 border rounded hover:bg-slate-50 disabled:opacity-50"
+              >
+                {outliersQ.isFetching ? 'Scanning…' : 'Rescan'}
+              </button>
+            </footer>
+          </div>
+        </div>
+      )}
 
       {exportProgress && (
         <div
