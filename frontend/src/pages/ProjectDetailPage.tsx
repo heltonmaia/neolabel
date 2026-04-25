@@ -124,6 +124,9 @@ export default function ProjectDetailPage() {
   // Items filters / view
   const [statusFilter, setStatusFilter] = useState<'all' | ItemStatus>('all');
   const [sourceFilter, setSourceFilter] = useState<string>('');
+  // '' = all, number = a specific user id, 'unassigned' = items with no assignee.
+  // Admin-only (the user list endpoint is admin-only too).
+  const [assigneeFilter, setAssigneeFilter] = useState<'' | number | 'unassigned'>('');
   const [itemView, setItemView] = useState<'list' | 'grid'>('list');
   const [itemsVisible, setItemsVisible] = useState(50);
 
@@ -264,6 +267,18 @@ export default function ProjectDetailPage() {
     return Array.from(s).sort();
   }, [items, isPose]);
 
+  // Distinct assignees actually present on this project's items, used to
+  // populate the annotator filter and to hide it when there's only one group.
+  const itemAnnotators = useMemo(() => {
+    const ids = new Set<number>();
+    let hasUnassigned = false;
+    for (const i of items) {
+      if (i.assigned_to == null) hasUnassigned = true;
+      else ids.add(i.assigned_to);
+    }
+    return { ids: Array.from(ids).sort((a, b) => a - b), hasUnassigned };
+  }, [items]);
+
   const filteredItems = useMemo(() => {
     return items.filter((i) => {
       if (statusFilter !== 'all' && i.status !== statusFilter) return false;
@@ -271,9 +286,16 @@ export default function ProjectDetailPage() {
         const sv = (i.payload as { source_video?: string }).source_video;
         if (sv !== sourceFilter) return false;
       }
+      if (assigneeFilter !== '') {
+        if (assigneeFilter === 'unassigned') {
+          if (i.assigned_to != null) return false;
+        } else if (i.assigned_to !== assigneeFilter) {
+          return false;
+        }
+      }
       return true;
     });
-  }, [items, statusFilter, sourceFilter]);
+  }, [items, statusFilter, sourceFilter, assigneeFilter]);
 
   const userNameById = useMemo(() => {
     const m = new Map<number, string>();
@@ -1268,42 +1290,73 @@ export default function ProjectDetailPage() {
               </span>
             </button>
           ))}
-          {isPose && sourceVideos.length > 0 && (
-            <select
-              value={sourceFilter}
-              onChange={(e) => {
-                setSourceFilter(e.target.value);
-                setItemsVisible(50);
-              }}
-              className="border rounded px-2 py-1 text-xs ml-auto"
-            >
-              <option value="">All videos</option>
-              {sourceVideos.map((sv) => (
-                <option key={sv} value={sv}>
-                  {sv}
-                </option>
-              ))}
-            </select>
-          )}
-          <div className="inline-flex border rounded overflow-hidden text-xs">
-            <button
-              onClick={() => setItemView('list')}
-              className={`px-2 py-1 ${
-                itemView === 'list' ? 'bg-slate-800 text-white' : 'bg-white text-slate-600'
-              }`}
-              title="List view"
-            >
-              List
-            </button>
-            <button
-              onClick={() => setItemView('grid')}
-              className={`px-2 py-1 border-l ${
-                itemView === 'grid' ? 'bg-slate-800 text-white' : 'bg-white text-slate-600'
-              }`}
-              title="Grid view"
-            >
-              Grid
-            </button>
+          <div className="flex items-center gap-2 flex-wrap ml-auto">
+            {isAdmin &&
+              itemAnnotators.ids.length + (itemAnnotators.hasUnassigned ? 1 : 0) > 1 && (
+                <select
+                  value={assigneeFilter === '' ? '' : String(assigneeFilter)}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setAssigneeFilter(
+                      v === ''
+                        ? ''
+                        : v === 'unassigned'
+                          ? 'unassigned'
+                          : Number(v),
+                    );
+                    setItemsVisible(50);
+                  }}
+                  className="border rounded px-2 py-1 text-xs"
+                  title="Filter by annotator"
+                >
+                  <option value="">All annotators</option>
+                  {itemAnnotators.ids.map((uid) => (
+                    <option key={uid} value={uid}>
+                      {userNameById.get(uid) ?? `user #${uid}`}
+                    </option>
+                  ))}
+                  {itemAnnotators.hasUnassigned && (
+                    <option value="unassigned">— unassigned —</option>
+                  )}
+                </select>
+              )}
+            {isPose && sourceVideos.length > 0 && (
+              <select
+                value={sourceFilter}
+                onChange={(e) => {
+                  setSourceFilter(e.target.value);
+                  setItemsVisible(50);
+                }}
+                className="border rounded px-2 py-1 text-xs"
+              >
+                <option value="">All videos</option>
+                {sourceVideos.map((sv) => (
+                  <option key={sv} value={sv}>
+                    {sv}
+                  </option>
+                ))}
+              </select>
+            )}
+            <div className="inline-flex border rounded overflow-hidden text-xs">
+              <button
+                onClick={() => setItemView('list')}
+                className={`px-2 py-1 ${
+                  itemView === 'list' ? 'bg-slate-800 text-white' : 'bg-white text-slate-600'
+                }`}
+                title="List view"
+              >
+                List
+              </button>
+              <button
+                onClick={() => setItemView('grid')}
+                className={`px-2 py-1 border-l ${
+                  itemView === 'grid' ? 'bg-slate-800 text-white' : 'bg-white text-slate-600'
+                }`}
+                title="Grid view"
+              >
+                Grid
+              </button>
+            </div>
           </div>
         </div>
         )}
