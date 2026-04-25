@@ -222,8 +222,33 @@ def upsert_annotation(item: dict, annotator_id: int, data: AnnotationUpsert) -> 
     storage.save_annotation(pid, record)
     project = storage.load_project(pid)
     item["status"] = _status_for(project, data.value)
+    # Once the annotator brings the item back to 'done', clear any prior
+    # review_note: they've responded to the feedback. Partial saves
+    # (in_progress) keep the note so the prompt doesn't disappear mid-fix.
+    if item["status"] == ItemStatus.done.value:
+        item.pop("review_note", None)
     storage.save_item(item)
     return AnnotationRead.model_validate(record)
+
+
+def review_item(item: dict, approve: bool, note: str | None) -> dict:
+    """Curation action by admin/owner.
+
+    approve=True  -> status='reviewed', any prior note cleared.
+    approve=False -> status='in_progress' (annotation kept intact so the
+                     assignee can refine), note stored on the item.
+    """
+    if approve:
+        item["status"] = ItemStatus.reviewed.value
+        item.pop("review_note", None)
+    else:
+        item["status"] = ItemStatus.in_progress.value
+        if note and note.strip():
+            item["review_note"] = note.strip()
+        else:
+            item.pop("review_note", None)
+    storage.save_item(item)
+    return item
 
 
 def _jpeg_size(path: Path) -> tuple[int, int] | None:

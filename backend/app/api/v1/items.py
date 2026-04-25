@@ -8,6 +8,7 @@ from app.schemas.item import (
     ItemBulkCreate,
     ItemDetail,
     ItemRead,
+    ItemReviewIn,
 )
 from app.services import item as item_service
 from app.services import project as project_service
@@ -148,6 +149,25 @@ def upsert_annotation(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Item not found")
     _require_item_access(item, current_user)
     return item_service.upsert_annotation(item, _annotation_uid(item, current_user), data)
+
+
+@router.post("/items/{item_id}/review", response_model=ItemRead, tags=["items"])
+def review_item(
+    item_id: int, data: ItemReviewIn, current_user: CurrentUser
+) -> ItemRead:
+    item = item_service.get(item_id)
+    if not item:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Item not found")
+    # Only project admin/owner can curate. Annotators editing their own
+    # items go through the annotation upsert route, not this one.
+    _require_project_for_owner(item["project_id"], current_user)
+    if data.approve and item.get("status") not in ("done", "reviewed"):
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "Item must be done before it can be approved",
+        )
+    updated = item_service.review_item(item, data.approve, data.note)
+    return ItemRead.model_validate(updated)
 
 
 def _stream_zip(stream, size: int, filename: str) -> StreamingResponse:
