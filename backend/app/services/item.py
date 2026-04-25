@@ -257,22 +257,24 @@ def upsert_annotation(item: dict, annotator_id: int, data: AnnotationUpsert) -> 
     return AnnotationRead.model_validate(record)
 
 
-def review_item(item: dict, approve: bool, note: str | None) -> dict:
-    """Curation action by admin/owner.
-
-    approve=True  -> status='reviewed', any prior note cleared.
-    approve=False -> status='in_progress' (annotation kept intact so the
-                     assignee can refine), note stored on the item.
-    """
-    if approve:
+def review_item(item: dict, action: str, note: str | None) -> dict:
+    """Curation action by admin/owner. See ItemReviewIn for the enum."""
+    if action == "approve":
         item["status"] = ItemStatus.reviewed.value
         item.pop("review_note", None)
-    else:
+    elif action == "unapprove":
+        # Revert a prior approval. Annotation is untouched; admin/owner can
+        # then re-approve, send back, or leave it 'done' for someone else.
+        item["status"] = ItemStatus.done.value
+        item.pop("review_note", None)
+    elif action == "send_back":
         item["status"] = ItemStatus.in_progress.value
         if note and note.strip():
             item["review_note"] = note.strip()
         else:
             item.pop("review_note", None)
+    else:
+        raise ValueError(f"unknown review action: {action!r}")
     storage.save_item(item)
     return item
 

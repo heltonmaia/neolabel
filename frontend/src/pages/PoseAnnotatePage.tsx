@@ -233,8 +233,8 @@ export default function PoseAnnotatePage() {
   const [showSendBack, setShowSendBack] = useState(false);
   const [reviewNoteInput, setReviewNoteInput] = useState('');
   const reviewMut = useMutation({
-    mutationFn: (p: { approve: boolean; note?: string }) =>
-      reviewItem(currentItemId, p.approve, p.note),
+    mutationFn: (p: { action: 'approve' | 'unapprove' | 'send_back'; note?: string }) =>
+      reviewItem(currentItemId, p.action, p.note),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['items', projectId] });
       qc.invalidateQueries({ queryKey: ['item', currentItemId] });
@@ -248,19 +248,24 @@ export default function PoseAnnotatePage() {
     setReviewNoteInput('');
   }, [currentItemId]);
 
-  // After approve / send-back, if review mode is on and a next item exists in
-  // the (current) cohort, jump to it — the just-actioned item is leaving the
-  // queue and a manual click would slow the curation flow. Pre-compute the
-  // target before mutate so a stale cohort can't strand us.
+  // The Approve button toggles: 'done' -> 'reviewed' -> 'done' -> ...
+  // Auto-advance only fires for forward-progress actions (approve, send-back),
+  // never for unapprove — that's a correction, the user wants to stay on
+  // the item to verify or re-review.
   function handleApprove() {
-    const ix = cohort.findIndex((i) => i.id === currentItemId);
-    const nextTarget = ix >= 0 && ix < cohort.length - 1 ? cohort[ix + 1] : null;
+    const isUnapprove = itemQ.data?.status === 'reviewed';
+    const action: 'approve' | 'unapprove' = isUnapprove ? 'unapprove' : 'approve';
+    let nextTargetId: number | null = null;
+    if (!isUnapprove) {
+      const ix = cohort.findIndex((i) => i.id === currentItemId);
+      if (ix >= 0 && ix < cohort.length - 1) nextTargetId = cohort[ix + 1].id;
+    }
     reviewMut.mutate(
-      { approve: true },
+      { action },
       {
         onSuccess: () => {
-          if (reviewMode && nextTarget) {
-            navigate(`/projects/${projectId}/annotate/${nextTarget.id}`);
+          if (reviewMode && nextTargetId !== null) {
+            navigate(`/projects/${projectId}/annotate/${nextTargetId}`);
           }
         },
       },
@@ -268,13 +273,14 @@ export default function PoseAnnotatePage() {
   }
   function handleSendBack(note?: string) {
     const ix = cohort.findIndex((i) => i.id === currentItemId);
-    const nextTarget = ix >= 0 && ix < cohort.length - 1 ? cohort[ix + 1] : null;
+    const nextTargetId =
+      ix >= 0 && ix < cohort.length - 1 ? cohort[ix + 1].id : null;
     reviewMut.mutate(
-      { approve: false, note },
+      { action: 'send_back', note },
       {
         onSuccess: () => {
-          if (reviewMode && nextTarget) {
-            navigate(`/projects/${projectId}/annotate/${nextTarget.id}`);
+          if (reviewMode && nextTargetId !== null) {
+            navigate(`/projects/${projectId}/annotate/${nextTargetId}`);
           }
         },
       },
@@ -522,7 +528,8 @@ export default function PoseAnnotatePage() {
 
       // Curation (admin/owner only, only meaningful for done/reviewed items).
       if (canReview && itemQ.data && (itemQ.data.status === 'done' || itemQ.data.status === 'reviewed')) {
-        if ((e.key === 'a' || e.key === 'A') && itemQ.data.status !== 'reviewed') {
+        // A toggles approve/unapprove based on current status.
+        if (e.key === 'a' || e.key === 'A') {
           handleApprove();
           return;
         }
@@ -850,10 +857,20 @@ export default function PoseAnnotatePage() {
                   <button
                     type="button"
                     onClick={handleApprove}
-                    disabled={reviewMut.isPending || item.status === 'reviewed'}
-                    className="px-3 py-2 rounded bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                    disabled={reviewMut.isPending}
+                    className={
+                      'px-3 py-2 rounded text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed ' +
+                      (item.status === 'reviewed'
+                        ? 'bg-white border border-slate-300 text-slate-700 hover:bg-slate-50'
+                        : 'bg-emerald-600 text-white hover:bg-emerald-700')
+                    }
+                    title={
+                      item.status === 'reviewed'
+                        ? 'Move this item back to "awaiting review" (not a rejection — use Send back to return it to the annotator)'
+                        : 'Approve this item — marks it reviewed'
+                    }
                   >
-                    Approve
+                    {item.status === 'reviewed' ? 'Undo approval' : 'Approve'}
                   </button>
                   <button
                     type="button"

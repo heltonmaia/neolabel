@@ -1,6 +1,6 @@
 import enum
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict
 
@@ -36,10 +36,13 @@ class ReassignRequest(BaseModel):
 
 
 class ItemReviewIn(BaseModel):
-    """approve=True marks status=reviewed and clears any prior note.
-    approve=False marks status=in_progress (preserving keypoints) and stores
-    the optional note on the item so the assignee can see why it came back."""
-    approve: bool
+    """Curation actions:
+      - approve   -> status='reviewed', clears any prior note.
+      - unapprove -> status='done' (revert a prior approval). Annotation stays.
+      - send_back -> status='in_progress', preserves keypoints, stores the
+                     optional note so the assignee sees what to fix.
+    """
+    action: Literal["approve", "unapprove", "send_back"]
     note: str | None = None
 
 

@@ -63,13 +63,15 @@ export async function clearAnnotation(itemId: number) {
   await api.delete(`/items/${itemId}/annotation`);
 }
 
+export type ReviewAction = 'approve' | 'unapprove' | 'send_back';
+
 export async function reviewItem(
   itemId: number,
-  approve: boolean,
+  action: ReviewAction,
   note?: string,
 ) {
   const { data } = await api.post<Item>(`/items/${itemId}/review`, {
-    approve,
+    action,
     note: note ?? null,
   });
   return data;

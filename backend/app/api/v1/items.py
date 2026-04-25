@@ -174,12 +174,18 @@ def review_item(
     # Only project admin/owner can curate. Annotators editing their own
     # items go through the annotation upsert route, not this one.
     _require_project_for_owner(item["project_id"], current_user)
-    if data.approve and item.get("status") not in ("done", "reviewed"):
+    current_status = item.get("status")
+    if data.action == "approve" and current_status not in ("done", "reviewed"):
         raise HTTPException(
             status.HTTP_409_CONFLICT,
             "Item must be done before it can be approved",
         )
-    updated = item_service.review_item(item, data.approve, data.note)
+    if data.action == "unapprove" and current_status != "reviewed":
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "Item is not currently approved",
+        )
+    updated = item_service.review_item(item, data.action, data.note)
     return ItemRead.model_validate(updated)
 
 

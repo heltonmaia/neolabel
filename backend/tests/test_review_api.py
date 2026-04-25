@@ -38,7 +38,7 @@ def test_approve_marks_reviewed(client, auth_headers, project):
     iid = _make_done_item(client, project["id"], auth_headers)
     r = client.post(
         f"/api/v1/items/{iid}/review",
-        json={"approve": True},
+        json={"action": "approve"},
         headers=auth_headers,
     )
     assert r.status_code == 200, r.text
@@ -51,7 +51,7 @@ def test_send_back_marks_in_progress_with_note(client, auth_headers, project):
     iid = _make_done_item(client, project["id"], auth_headers)
     r = client.post(
         f"/api/v1/items/{iid}/review",
-        json={"approve": False, "note": "left ear off"},
+        json={"action": "send_back", "note": "left ear off"},
         headers=auth_headers,
     )
     assert r.status_code == 200
@@ -64,7 +64,7 @@ def test_send_back_preserves_annotation(client, auth_headers, project):
     iid = _make_done_item(client, project["id"], auth_headers)
     client.post(
         f"/api/v1/items/{iid}/review",
-        json={"approve": False, "note": "redo nose"},
+        json={"action": "send_back", "note": "redo nose"},
         headers=auth_headers,
     )
     # Annotation should still be there — assignee refines, not redoes.
@@ -77,7 +77,7 @@ def test_approve_clears_prior_note(client, auth_headers, project):
     iid = _make_done_item(client, project["id"], auth_headers)
     client.post(
         f"/api/v1/items/{iid}/review",
-        json={"approve": False, "note": "fix it"},
+        json={"action": "send_back", "note": "fix it"},
         headers=auth_headers,
     )
     # Re-save to bring back to done so approve is allowed.
@@ -88,7 +88,7 @@ def test_approve_clears_prior_note(client, auth_headers, project):
     )
     r = client.post(
         f"/api/v1/items/{iid}/review",
-        json={"approve": True},
+        json={"action": "approve"},
         headers=auth_headers,
     )
     assert r.json()["status"] == "reviewed"
@@ -99,7 +99,7 @@ def test_send_back_with_no_note_clears_existing(client, auth_headers, project):
     iid = _make_done_item(client, project["id"], auth_headers)
     client.post(
         f"/api/v1/items/{iid}/review",
-        json={"approve": False, "note": "first attempt"},
+        json={"action": "send_back", "note": "first attempt"},
         headers=auth_headers,
     )
     # Send back again, without a note — old note should be cleared, not retained.
@@ -110,7 +110,7 @@ def test_send_back_with_no_note_clears_existing(client, auth_headers, project):
     )
     r = client.post(
         f"/api/v1/items/{iid}/review",
-        json={"approve": False},
+        json={"action": "send_back"},
         headers=auth_headers,
     )
     assert r.json()["review_note"] is None
@@ -128,7 +128,7 @@ def test_approve_blocked_when_not_done(client, auth_headers, project):
     ).json()["items"][0]["id"]
     r = client.post(
         f"/api/v1/items/{iid}/review",
-        json={"approve": True},
+        json={"action": "approve"},
         headers=auth_headers,
     )
     assert r.status_code == 409
@@ -139,7 +139,7 @@ def test_owner_can_review(client, auth_headers, project):
     iid = _make_done_item(client, project["id"], auth_headers)
     r = client.post(
         f"/api/v1/items/{iid}/review",
-        json={"approve": True},
+        json={"action": "approve"},
         headers=auth_headers,
     )
     assert r.status_code == 200
@@ -150,7 +150,7 @@ def test_admin_can_review_any_project(client, auth_headers, admin_headers, proje
     iid = _make_done_item(client, project["id"], auth_headers)
     r = client.post(
         f"/api/v1/items/{iid}/review",
-        json={"approve": True},
+        json={"action": "approve"},
         headers=admin_headers,
     )
     assert r.status_code == 200
@@ -163,7 +163,7 @@ def test_non_owner_non_admin_cannot_review(
     iid = _make_done_item(client, project["id"], auth_headers)
     r = client.post(
         f"/api/v1/items/{iid}/review",
-        json={"approve": True},
+        json={"action": "approve"},
         headers=second_user_headers,
     )
     # Owner-gate returns 404 (hides existence) for unauthorized users.
@@ -176,7 +176,7 @@ def test_assignee_save_after_send_back_clears_note(client, auth_headers, project
     iid = _make_done_item(client, project["id"], auth_headers)
     client.post(
         f"/api/v1/items/{iid}/review",
-        json={"approve": False, "note": "wrong shoulder"},
+        json={"action": "send_back", "note": "wrong shoulder"},
         headers=auth_headers,
     )
     assert client.get(
@@ -194,6 +194,36 @@ def test_assignee_save_after_send_back_clears_note(client, auth_headers, project
     ).json()["items"]
     assert items[0]["status"] == "done"
     assert items[0]["review_note"] is None
+
+
+def test_unapprove_reverts_reviewed_to_done(client, auth_headers, project):
+    iid = _make_done_item(client, project["id"], auth_headers)
+    client.post(
+        f"/api/v1/items/{iid}/review",
+        json={"action": "approve"},
+        headers=auth_headers,
+    )
+    r = client.post(
+        f"/api/v1/items/{iid}/review",
+        json={"action": "unapprove"},
+        headers=auth_headers,
+    )
+    assert r.status_code == 200
+    assert r.json()["status"] == "done"
+    # Annotation untouched.
+    detail = client.get(f"/api/v1/items/{iid}", headers=auth_headers).json()
+    assert detail["annotation"]["value"]["keypoints"] == _full_kps()
+
+
+def test_unapprove_blocked_when_not_reviewed(client, auth_headers, project):
+    """Can't unapprove an item that wasn't approved."""
+    iid = _make_done_item(client, project["id"], auth_headers)
+    r = client.post(
+        f"/api/v1/items/{iid}/review",
+        json={"action": "unapprove"},
+        headers=auth_headers,
+    )
+    assert r.status_code == 409
 
 
 def test_approve_all_done_marks_only_done(client, auth_headers, project):
@@ -297,7 +327,7 @@ def test_partial_save_after_send_back_keeps_note(client, auth_headers, project):
     iid = _make_done_item(client, project["id"], auth_headers)
     client.post(
         f"/api/v1/items/{iid}/review",
-        json={"approve": False, "note": "redo eye"},
+        json={"action": "send_back", "note": "redo eye"},
         headers=auth_headers,
     )
     partial = [[0, 0, 0]] * 17

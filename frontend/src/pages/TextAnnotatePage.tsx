@@ -54,8 +54,8 @@ export default function TextAnnotatePage() {
   const [showSendBack, setShowSendBack] = useState(false);
   const [reviewNoteInput, setReviewNoteInput] = useState('');
   const reviewMut = useMutation({
-    mutationFn: (p: { approve: boolean; note?: string }) =>
-      reviewItem(currentItemId, p.approve, p.note),
+    mutationFn: (p: { action: 'approve' | 'unapprove' | 'send_back'; note?: string }) =>
+      reviewItem(currentItemId, p.action, p.note),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['items', projectId] });
       qc.invalidateQueries({ queryKey: ['item', currentItemId] });
@@ -148,11 +148,25 @@ export default function TextAnnotatePage() {
             <div className="grid grid-cols-2 gap-2">
               <button
                 type="button"
-                onClick={() => reviewMut.mutate({ approve: true })}
-                disabled={reviewMut.isPending || item.status === 'reviewed'}
-                className="px-3 py-2 rounded bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                onClick={() =>
+                  reviewMut.mutate({
+                    action: item.status === 'reviewed' ? 'unapprove' : 'approve',
+                  })
+                }
+                disabled={reviewMut.isPending}
+                className={
+                  'px-3 py-2 rounded text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed ' +
+                  (item.status === 'reviewed'
+                    ? 'bg-white border border-slate-300 text-slate-700 hover:bg-slate-50'
+                    : 'bg-emerald-600 text-white hover:bg-emerald-700')
+                }
+                title={
+                  item.status === 'reviewed'
+                    ? 'Move this item back to "awaiting review" (not a rejection — use Send back to return it to the annotator)'
+                    : 'Approve this item — marks it reviewed'
+                }
               >
-                Approve
+                {item.status === 'reviewed' ? 'Undo approval' : 'Approve'}
               </button>
               <button
                 type="button"
@@ -189,7 +203,7 @@ export default function TextAnnotatePage() {
                   type="button"
                   onClick={() =>
                     reviewMut.mutate({
-                      approve: false,
+                      action: 'send_back',
                       note: reviewNoteInput.trim() || undefined,
                     })
                   }
