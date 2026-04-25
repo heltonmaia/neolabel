@@ -24,7 +24,7 @@ set -euo pipefail
 BACKUP_DIR="${BACKUP_DIR:-/root/neo-label-backups}"
 DATA_DIR="${DATA_DIR:-/root/work/neo-label-data}"
 REPO_DIR="${REPO_DIR:-/root/work/neo-label}"
-RETENTION_DAYS="${RETENTION_DAYS:-14}"
+RETENTION_COUNT="${RETENTION_COUNT:-5}"
 
 for path in "$DATA_DIR" "$REPO_DIR/seed_users.json" "$REPO_DIR/.env.prod"; do
   [[ -e "$path" ]] || { echo "missing: $path" >&2; exit 1; }
@@ -43,7 +43,13 @@ tar -czf "$out" \
 
 chmod 600 "$out"
 
-find "$BACKUP_DIR" -maxdepth 1 -name 'neo-label-*.tar.gz' -type f -mtime +"$RETENTION_DAYS" -delete
+# Keep only the newest $RETENTION_COUNT archives. Sort by mtime descending,
+# skip the first N, delete the rest. Runs only after the tar above succeeded
+# (set -e), so a broken script never wipes the last known-good backup.
+find "$BACKUP_DIR" -maxdepth 1 -name 'neo-label-*.tar.gz' -type f -printf '%T@ %p\n' \
+  | sort -rn \
+  | awk -v n="$RETENTION_COUNT" 'NR>n {print $2}' \
+  | xargs -r rm -f
 
 size="$(du -h "$out" | cut -f1)"
 echo "[$(date -Iseconds)] backup ok: $out ($size)"
