@@ -69,12 +69,19 @@ def videos_in_project(project_id: int) -> list[dict]:
                 "source_video": name,
                 "frames": 0,
                 "done": 0,
+                "reviewed": 0,
                 "assigned_to": item.get("assigned_to"),
             },
         )
         g["frames"] += 1
+        # `done` is "annotated" (counts both done and reviewed) — kept as-is
+        # for the existing progress bar UI. `reviewed` is the strict subset
+        # that's been signed off by admin/owner, so the UI can compute
+        # "approve-able" = done - reviewed.
         if item.get("status") in (ItemStatus.done.value, ItemStatus.reviewed.value):
             g["done"] += 1
+        if item.get("status") == ItemStatus.reviewed.value:
+            g["reviewed"] += 1
         # If frames disagree on assignee (manual edits), expose None so admin resolves.
         if g["assigned_to"] != item.get("assigned_to"):
             g["assigned_to"] = None
@@ -181,6 +188,25 @@ def delete_annotated(project_id: int) -> int:
         if item.get("status") in (ItemStatus.done.value, ItemStatus.reviewed.value):
             if storage.delete_item(project_id, item["id"]):
                 count += 1
+    return count
+
+
+def approve_all_done(project_id: int, source_video: str | None = None) -> int:
+    """Mark every 'done' item as 'reviewed' (optionally restricted to one
+    source video). Items already 'reviewed' are skipped silently. Returns
+    the count of items touched."""
+    count = 0
+    for item in storage.list_items(project_id):
+        if item.get("status") != ItemStatus.done.value:
+            continue
+        if source_video is not None:
+            sv = (item.get("payload") or {}).get("source_video")
+            if sv != source_video:
+                continue
+        item["status"] = ItemStatus.reviewed.value
+        item.pop("review_note", None)
+        storage.save_item(item)
+        count += 1
     return count
 
 

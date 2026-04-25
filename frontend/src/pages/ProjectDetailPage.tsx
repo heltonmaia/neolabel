@@ -10,6 +10,7 @@ import {
   getProject,
 } from '@/api/projects';
 import {
+  approveAllDone,
   bulkUpload,
   clearAnnotation,
   deleteAnnotatedItems,
@@ -240,6 +241,19 @@ export default function ProjectDetailPage() {
   const removeProject = useMutation({
     mutationFn: () => deleteProject(projectId),
     onSuccess: () => navigate('/projects'),
+  });
+
+  // Bulk-approve every 'done' frame of one video. Tracks which video is in
+  // flight so only that row's button shows the spinner.
+  const [approvingVideo, setApprovingVideo] = useState<string | null>(null);
+  const approveAllMut = useMutation({
+    mutationFn: (sourceVideo: string) => approveAllDone(projectId, sourceVideo),
+    onMutate: (sourceVideo) => setApprovingVideo(sourceVideo),
+    onSettled: () => {
+      setApprovingVideo(null);
+      qc.invalidateQueries({ queryKey: ['items', projectId] });
+      qc.invalidateQueries({ queryKey: ['videos', projectId] });
+    },
   });
 
   const items = itemsQ.data?.items ?? [];
@@ -1155,22 +1169,29 @@ export default function ProjectDetailPage() {
                 <th className="py-1 w-24">Frames</th>
                 <th className="py-1 w-56">Progress</th>
                 <th className="py-1">Assigned to</th>
-                <th className="py-1 w-8"></th>
+                <th className="py-1 w-20"></th>
               </tr>
             </thead>
             <tbody>
               {filtered.map((v) => {
-                const pct = v.frames > 0 ? (v.done / v.frames) * 100 : 0;
                 return (
                 <tr key={v.source_video} className="border-t">
                   <td className="py-2 font-mono truncate max-w-xs">{v.source_video}</td>
                   <td className="py-2">{v.frames}</td>
                   <td className="py-2">
                     <div className="flex items-center gap-2">
-                      <div className="flex-1 h-2 bg-slate-100 rounded overflow-hidden">
+                      <div className="flex-1 h-2 bg-slate-100 rounded overflow-hidden flex">
+                        {/* Reviewed (blue) layered before done (emerald) so the
+                            two segments add up to v.done. */}
+                        <div
+                          className="h-full bg-blue-500"
+                          style={{ width: `${v.frames > 0 ? (v.reviewed / v.frames) * 100 : 0}%` }}
+                          title={`${v.reviewed} reviewed`}
+                        />
                         <div
                           className="h-full bg-emerald-500"
-                          style={{ width: `${pct}%` }}
+                          style={{ width: `${v.frames > 0 ? ((v.done - v.reviewed) / v.frames) * 100 : 0}%` }}
+                          title={`${v.done - v.reviewed} done, awaiting review`}
                         />
                       </div>
                       <span className="text-xs text-slate-500 tabular-nums whitespace-nowrap">
@@ -1197,6 +1218,39 @@ export default function ProjectDetailPage() {
                     </select>
                   </td>
                   <td className="py-2">
+                    <div className="flex items-center gap-1">
+                      {(() => {
+                        const pendingApproval = v.done - v.reviewed;
+                        if (pendingApproval <= 0) return null;
+                        const inFlight = approvingVideo === v.source_video;
+                        return (
+                          <button
+                            onClick={() =>
+                              confirmDialog.ask({
+                                title: 'Approve all done frames?',
+                                message: `Mark all ${pendingApproval} done frames in "${v.source_video}" as reviewed. Frames already reviewed are skipped.`,
+                                confirmLabel: 'Approve all',
+                                onConfirm: () => approveAllMut.mutate(v.source_video),
+                              })
+                            }
+                            disabled={inFlight}
+                            className="text-emerald-600 hover:text-emerald-800 p-1 disabled:opacity-40"
+                            title={`Approve all ${pendingApproval} done frames as reviewed`}
+                            aria-label="Approve all done frames in this video"
+                          >
+                            {inFlight ? (
+                              <svg className="animate-spin" width="16" height="16" viewBox="0 0 24 24" fill="none">
+                                <circle cx="12" cy="12" r="10" stroke="currentColor" strokeOpacity="0.25" strokeWidth="4" />
+                                <path d="M12 2a10 10 0 0 1 10 10" stroke="currentColor" strokeWidth="4" strokeLinecap="round" />
+                              </svg>
+                            ) : (
+                              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                <polyline points="20 6 9 17 4 12" />
+                              </svg>
+                            )}
+                          </button>
+                        );
+                      })()}
                     <button
                       onClick={() =>
                         confirmDialog.ask({
@@ -1230,6 +1284,7 @@ export default function ProjectDetailPage() {
                         <path d="M14 11v6" />
                       </svg>
                     </button>
+                    </div>
                   </td>
                 </tr>
                 );

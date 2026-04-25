@@ -75,6 +75,15 @@ export async function reviewItem(
   return data;
 }
 
+export async function approveAllDone(projectId: number, sourceVideo?: string) {
+  const { data } = await api.post<{ approved: number }>(
+    `/projects/${projectId}/items/approve-all-done`,
+    null,
+    { params: sourceVideo ? { source_video: sourceVideo } : undefined },
+  );
+  return data;
+}
+
 export async function deleteAnnotatedItems(projectId: number) {
   const { data } = await api.post<{ deleted: number }>(
     `/projects/${projectId}/items/delete-annotated`,
