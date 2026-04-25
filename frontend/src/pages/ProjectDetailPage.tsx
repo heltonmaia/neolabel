@@ -464,9 +464,10 @@ export default function ProjectDetailPage() {
               onClick={() =>
                 confirmDialog.ask({
                   title: 'Delete project?',
-                  message: 'This removes the project and every item, annotation, video and frame it contains. This cannot be undone.',
+                  message: `"${project.name}" — this removes the project and every item, annotation, video and frame it contains. This cannot be undone.`,
                   confirmLabel: 'Delete project',
                   tone: 'danger',
+                  requireTypedConfirmation: project.name,
                   onConfirm: () => removeProject.mutate(),
                 })
               }
@@ -1281,6 +1282,7 @@ export default function ProjectDetailPage() {
                           message: `"${v.source_video}" and all ${v.frames} extracted frames (plus their annotations) will be removed. This cannot be undone.`,
                           confirmLabel: 'Delete video',
                           tone: 'danger',
+                          requireTypedConfirmation: v.source_video,
                           onConfirm: () => removeVideo.mutate(v.source_video),
                         })
                       }
