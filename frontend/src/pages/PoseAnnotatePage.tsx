@@ -18,6 +18,7 @@ import {
 } from '@/lib/keypoints';
 
 const ORDER_STORAGE_KEY = 'pose.orderMode';
+const REVIEW_MODE_STORAGE_KEY = 'pose.reviewMode';
 const ORDER_LABEL: Record<OrderMode, string> = {
   top: 'Top → bottom',
   left: 'Left contour',
@@ -170,6 +171,18 @@ export default function PoseAnnotatePage() {
 
   const confirm = useConfirm();
 
+  // Review-queue mode: when on, the cohort below is also restricted to
+  // status='done' items, so admin/owner walks only items pending approval.
+  // After approve/send-back the item leaves this set, so we auto-advance to
+  // the next one — see handleApprove / handleSendBack below.
+  const [reviewMode, setReviewMode] = useState<boolean>(() => {
+    return typeof window !== 'undefined'
+      && localStorage.getItem(REVIEW_MODE_STORAGE_KEY) === '1';
+  });
+  useEffect(() => {
+    localStorage.setItem(REVIEW_MODE_STORAGE_KEY, reviewMode ? '1' : '0');
+  }, [reviewMode]);
+
   const items = itemsQ.data?.items ?? [];
   // Cohort: items sharing the current item's assignee. Prev/Next walks only
   // within this cohort so navigating an annotator's queue never silently
@@ -177,8 +190,12 @@ export default function PoseAnnotatePage() {
   // would see). Treat null/undefined as "unassigned" — same group.
   const cohortAssignee = itemQ.data?.assigned_to ?? null;
   const cohort = useMemo(
-    () => items.filter((i) => (i.assigned_to ?? null) === cohortAssignee),
-    [items, cohortAssignee],
+    () => items.filter((i) => {
+      if ((i.assigned_to ?? null) !== cohortAssignee) return false;
+      if (reviewMode && i.status !== 'done') return false;
+      return true;
+    }),
+    [items, cohortAssignee, reviewMode],
   );
   const idx = useMemo(
     () => cohort.findIndex((i) => i.id === currentItemId),
@@ -230,6 +247,39 @@ export default function PoseAnnotatePage() {
     setShowSendBack(false);
     setReviewNoteInput('');
   }, [currentItemId]);
+
+  // After approve / send-back, if review mode is on and a next item exists in
+  // the (current) cohort, jump to it — the just-actioned item is leaving the
+  // queue and a manual click would slow the curation flow. Pre-compute the
+  // target before mutate so a stale cohort can't strand us.
+  function handleApprove() {
+    const ix = cohort.findIndex((i) => i.id === currentItemId);
+    const nextTarget = ix >= 0 && ix < cohort.length - 1 ? cohort[ix + 1] : null;
+    reviewMut.mutate(
+      { approve: true },
+      {
+        onSuccess: () => {
+          if (reviewMode && nextTarget) {
+            navigate(`/projects/${projectId}/annotate/${nextTarget.id}`);
+          }
+        },
+      },
+    );
+  }
+  function handleSendBack(note?: string) {
+    const ix = cohort.findIndex((i) => i.id === currentItemId);
+    const nextTarget = ix >= 0 && ix < cohort.length - 1 ? cohort[ix + 1] : null;
+    reviewMut.mutate(
+      { approve: false, note },
+      {
+        onSuccess: () => {
+          if (reviewMode && nextTarget) {
+            navigate(`/projects/${projectId}/annotate/${nextTarget.id}`);
+          }
+        },
+      },
+    );
+  }
 
   // Load saved annotation (if any) or reset to empty when the item changes.
   // Template reuse is now manual — see copyPreviousPose below.
@@ -473,7 +523,7 @@ export default function PoseAnnotatePage() {
       // Curation (admin/owner only, only meaningful for done/reviewed items).
       if (canReview && itemQ.data && (itemQ.data.status === 'done' || itemQ.data.status === 'reviewed')) {
         if ((e.key === 'a' || e.key === 'A') && itemQ.data.status !== 'reviewed') {
-          reviewMut.mutate({ approve: true });
+          handleApprove();
           return;
         }
         if (e.key === 'r' || e.key === 'R') {
@@ -527,19 +577,43 @@ export default function PoseAnnotatePage() {
             )}
           </div>
         </div>
-        <span className="text-sm text-slate-500 flex items-center gap-2">
-          {idx >= 0 ? `${idx + 1} / ${cohort.length}` : ''} ·
-          <span
-            className={
-              'px-2 py-0.5 rounded-full font-semibold ' +
-              (isComplete
-                ? 'bg-emerald-100 text-emerald-700'
-                : 'text-slate-500')
-            }
-          >
-            {doneCount}/{N} keypoints {isComplete && '✓'}
+        <div className="flex items-center gap-3 text-sm text-slate-500">
+          {canReview && (
+            <button
+              type="button"
+              onClick={() => setReviewMode((v) => !v)}
+              className={
+                'inline-flex items-center gap-1.5 px-2 py-1 rounded-full text-xs font-medium border transition-colors ' +
+                (reviewMode
+                  ? 'bg-amber-500 text-white border-amber-600 hover:bg-amber-600'
+                  : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50')
+              }
+              title={
+                reviewMode
+                  ? 'Walking only items pending approval. Click to widen back to the assignee’s full queue.'
+                  : 'Walk only items pending approval (status=done). Approve/Send back auto-advances.'
+              }
+            >
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                {reviewMode ? <polyline points="20 6 9 17 4 12" /> : <circle cx="12" cy="12" r="9" />}
+              </svg>
+              Review queue {reviewMode ? 'on' : 'off'}
+            </button>
+          )}
+          <span className="flex items-center gap-2">
+            {idx >= 0 ? `${idx + 1} / ${cohort.length}` : ''} ·
+            <span
+              className={
+                'px-2 py-0.5 rounded-full font-semibold ' +
+                (isComplete
+                  ? 'bg-emerald-100 text-emerald-700'
+                  : 'text-slate-500')
+              }
+            >
+              {doneCount}/{N} keypoints {isComplete && '✓'}
+            </span>
           </span>
-        </span>
+        </div>
       </header>
 
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_340px] gap-4">
@@ -775,7 +849,7 @@ export default function PoseAnnotatePage() {
                 <div className="grid grid-cols-2 gap-2">
                   <button
                     type="button"
-                    onClick={() => reviewMut.mutate({ approve: true })}
+                    onClick={handleApprove}
                     disabled={reviewMut.isPending || item.status === 'reviewed'}
                     className="px-3 py-2 rounded bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
@@ -814,12 +888,7 @@ export default function PoseAnnotatePage() {
                     </button>
                     <button
                       type="button"
-                      onClick={() =>
-                        reviewMut.mutate({
-                          approve: false,
-                          note: reviewNoteInput.trim() || undefined,
-                        })
-                      }
+                      onClick={() => handleSendBack(reviewNoteInput.trim() || undefined)}
                       disabled={reviewMut.isPending}
                       className="text-xs px-3 py-1.5 rounded bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-50"
                     >
