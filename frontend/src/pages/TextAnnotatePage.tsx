@@ -1,8 +1,9 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useParams } from 'react-router-dom';
+import { me } from '@/api/auth';
 import { getProject } from '@/api/projects';
-import { getItem, listItems, saveAnnotation } from '@/api/items';
+import { getItem, listItems, reviewItem, saveAnnotation } from '@/api/items';
 
 export default function TextAnnotatePage() {
   const { id, itemId } = useParams();
@@ -23,6 +24,7 @@ export default function TextAnnotatePage() {
     queryKey: ['items', projectId],
     queryFn: () => listItems(projectId),
   });
+  const meQ = useQuery({ queryKey: ['me'], queryFn: me });
 
   const items = itemsQ.data?.items ?? [];
   // Cohort: items sharing the current item's assignee. Prev/Next stays
@@ -45,6 +47,27 @@ export default function TextAnnotatePage() {
     },
   });
 
+  // Curation: admin or project owner can approve / send back done items.
+  const canReview = !!meQ.data && !!projectQ.data && (
+    meQ.data.role === 'admin' || meQ.data.id === projectQ.data.owner_id
+  );
+  const [showSendBack, setShowSendBack] = useState(false);
+  const [reviewNoteInput, setReviewNoteInput] = useState('');
+  const reviewMut = useMutation({
+    mutationFn: (p: { approve: boolean; note?: string }) =>
+      reviewItem(currentItemId, p.approve, p.note),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['items', projectId] });
+      qc.invalidateQueries({ queryKey: ['item', currentItemId] });
+      setShowSendBack(false);
+      setReviewNoteInput('');
+    },
+  });
+  useEffect(() => {
+    setShowSendBack(false);
+    setReviewNoteInput('');
+  }, [currentItemId]);
+
   async function pick(labelName: string) {
     await save.mutateAsync({ label: labelName });
     if (next) navigate(`/projects/${projectId}/annotate/${next.id}`);
@@ -55,7 +78,8 @@ export default function TextAnnotatePage() {
     const project = projectQ.data;
     if (!project) return;
     function onKey(e: KeyboardEvent) {
-      if ((e.target as HTMLElement)?.tagName === 'INPUT') return;
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA') return;
       if (e.key === 'ArrowLeft' && prev) {
         navigate(`/projects/${projectId}/annotate/${prev.id}`);
         return;
@@ -90,9 +114,95 @@ export default function TextAnnotatePage() {
           ← {project.name}
         </Link>
         <span className="text-sm text-slate-500">
-          {idx >= 0 ? `${idx + 1} / ${items.length}` : ''}
+          {idx >= 0 ? `${idx + 1} / ${cohort.length}` : ''}
         </span>
       </header>
+
+      {/* Needs-revision banner: assignee (and admin) sees what to fix. */}
+      {item.review_note && (
+        <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm">
+          <p className="font-semibold text-amber-900">Needs revision</p>
+          <p className="text-amber-800 mt-0.5">{item.review_note}</p>
+        </div>
+      )}
+
+      {/* Review panel: admin or project owner can approve / send back. */}
+      {canReview && (item.status === 'done' || item.status === 'reviewed') && (
+        <div
+          className={
+            'rounded-lg border p-3 space-y-2 ' +
+            (item.status === 'reviewed'
+              ? 'border-blue-300 bg-blue-50'
+              : 'border-emerald-300 bg-emerald-50')
+          }
+        >
+          <span
+            className={
+              'text-sm font-semibold ' +
+              (item.status === 'reviewed' ? 'text-blue-900' : 'text-emerald-900')
+            }
+          >
+            {item.status === 'reviewed' ? '✓ Reviewed' : 'Ready to review'}
+          </span>
+          {!showSendBack && (
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => reviewMut.mutate({ approve: true })}
+                disabled={reviewMut.isPending || item.status === 'reviewed'}
+                className="px-3 py-2 rounded bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Approve
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowSendBack(true)}
+                disabled={reviewMut.isPending}
+                className="px-3 py-2 rounded border border-amber-500 text-amber-700 bg-white text-sm font-medium hover:bg-amber-50 disabled:opacity-50"
+              >
+                Send back
+              </button>
+            </div>
+          )}
+          {showSendBack && (
+            <div className="space-y-2 pt-2 border-t border-slate-200">
+              <textarea
+                value={reviewNoteInput}
+                onChange={(e) => setReviewNoteInput(e.target.value)}
+                placeholder="Optional note for the annotator (what to fix)…"
+                rows={2}
+                autoFocus
+                className="w-full text-sm border rounded px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-amber-300"
+              />
+              <div className="flex gap-2 justify-end">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowSendBack(false);
+                    setReviewNoteInput('');
+                  }}
+                  className="text-xs px-3 py-1.5 border rounded text-slate-600 hover:bg-slate-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    reviewMut.mutate({
+                      approve: false,
+                      note: reviewNoteInput.trim() || undefined,
+                    })
+                  }
+                  disabled={reviewMut.isPending}
+                  className="text-xs px-3 py-1.5 rounded bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-50"
+                >
+                  Send back
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="bg-white p-6 rounded-lg shadow min-h-[160px] text-lg whitespace-pre-wrap">
         {text}
