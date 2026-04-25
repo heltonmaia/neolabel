@@ -257,15 +257,34 @@ export default function ProjectDetailPage() {
     return c;
   }, [items]);
 
+  // Source-video dropdown is constrained by the current assignee filter:
+  // when an annotator is selected we only offer videos that contain at
+  // least one of their items, so the dropdown can't lead to an empty list.
   const sourceVideos = useMemo(() => {
     if (!isPose) return [] as string[];
     const s = new Set<string>();
     for (const i of items) {
+      if (assigneeFilter !== '') {
+        if (assigneeFilter === 'unassigned') {
+          if (i.assigned_to != null) continue;
+        } else if (i.assigned_to !== assigneeFilter) {
+          continue;
+        }
+      }
       const sv = (i.payload as { source_video?: string }).source_video;
       if (sv) s.add(sv);
     }
     return Array.from(s).sort();
-  }, [items, isPose]);
+  }, [items, isPose, assigneeFilter]);
+
+  // If the selected source video disappears from the narrowed list (e.g. the
+  // user switched annotators and the previously chosen video has none of the
+  // new annotator's items), drop the stale selection so the list isn't empty.
+  useEffect(() => {
+    if (sourceFilter && !sourceVideos.includes(sourceFilter)) {
+      setSourceFilter('');
+    }
+  }, [sourceVideos, sourceFilter]);
 
   // Distinct assignees actually present on this project's items, used to
   // populate the annotator filter and to hide it when there's only one group.
