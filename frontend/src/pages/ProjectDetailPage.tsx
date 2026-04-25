@@ -1597,28 +1597,63 @@ export default function ProjectDetailPage() {
                     </span>
                   );
                 })()}
-                {(() => {
-                  const needsRevision =
-                    i.status === 'in_progress' && !!i.review_note;
-                  return (
-                    <span
-                      className={`text-xs px-2 py-0.5 rounded capitalize ${
-                        needsRevision
-                          ? 'bg-amber-100 text-amber-800 font-semibold ring-1 ring-amber-300'
-                          : i.status === 'done'
-                            ? 'bg-emerald-100 text-emerald-700'
-                            : i.status === 'in_progress'
-                              ? 'bg-amber-100 text-amber-700'
-                              : i.status === 'reviewed'
-                                ? 'bg-blue-100 text-blue-700'
-                                : 'bg-slate-100 text-slate-600'
-                      }`}
-                      title={needsRevision ? `Needs revision: ${i.review_note}` : undefined}
-                    >
-                      {needsRevision ? 'needs revision' : i.status.replace('_', ' ')}
-                    </span>
-                  );
-                })()}
+                {/* Two pills: annotation state on the left, review state on
+                    the right (when applicable). They're orthogonal — the old
+                    single pill conflated "annotator finished" with "admin
+                    signed off" and you couldn't see at a glance which step
+                    each item was waiting on. */}
+                <div className="flex items-center gap-1.5">
+                  <span
+                    className={`text-xs px-2 py-0.5 rounded capitalize ${
+                      i.status === 'pending'
+                        ? 'bg-slate-100 text-slate-600'
+                        : i.status === 'in_progress'
+                          ? 'bg-amber-100 text-amber-700'
+                          : 'bg-emerald-100 text-emerald-700'
+                    }`}
+                  >
+                    {i.status === 'pending'
+                      ? 'pending'
+                      : i.status === 'in_progress'
+                        ? 'in progress'
+                        : 'done'}
+                  </span>
+                  {(() => {
+                    const needsRevision =
+                      i.status === 'in_progress' && !!i.review_note;
+                    if (i.status === 'reviewed') {
+                      return (
+                        <span
+                          className="text-xs px-2 py-0.5 rounded bg-blue-500 text-white font-medium"
+                          title="Approved by admin/owner"
+                        >
+                          approved
+                        </span>
+                      );
+                    }
+                    if (i.status === 'done') {
+                      return (
+                        <span
+                          className="text-xs px-2 py-0.5 rounded border border-blue-300 text-blue-700 bg-blue-50"
+                          title="Annotated, waiting for admin/owner approval"
+                        >
+                          awaiting review
+                        </span>
+                      );
+                    }
+                    if (needsRevision) {
+                      return (
+                        <span
+                          className="text-xs px-2 py-0.5 rounded bg-amber-500 text-white font-semibold"
+                          title={`Sent back to annotator: ${i.review_note}`}
+                        >
+                          needs revision
+                        </span>
+                      );
+                    }
+                    return null;
+                  })()}
+                </div>
                 {(i.status === 'done' ||
                   i.status === 'in_progress' ||
                   i.status === 'reviewed') && (
