@@ -25,6 +25,19 @@ const ORDER_LABEL: Record<OrderMode, string> = {
 
 type KeypointsMap = Record<number, KeypointValue | null>;
 
+// Captured from <img> onLoad. We can't derive these from imgRef.current
+// during render: setting a ref doesn't trigger a re-render, and naturalW/H
+// are 0 until the image actually loads — which would collapse the SVG
+// viewBox and hide all keypoints (the bug this state fixes).
+type ImgDims = {
+  naturalW: number;
+  naturalH: number;
+  offsetL: number;
+  offsetT: number;
+  clientW: number;
+  clientH: number;
+};
+
 type DragState =
   | { mode: 'single'; id: number; moved: boolean }
   | {
@@ -124,6 +137,13 @@ export default function PoseAnnotatePage() {
   useEffect(() => {
     localStorage.setItem(ORDER_STORAGE_KEY, orderMode);
   }, [orderMode]);
+
+  // Drop stale dims as soon as the URL changes, so the SVG never paints
+  // the new frame's keypoints with the previous image's geometry.
+  useEffect(() => {
+    setImgDims(null);
+  }, [currentItemId]);
+  const [imgDims, setImgDims] = useState<ImgDims | null>(null);
   const historyRef = useRef<KeypointsMap[]>([]);
   const imgRef = useRef<HTMLImageElement>(null);
   const draggingRef = useRef<DragState | null>(null);
@@ -488,22 +508,33 @@ export default function PoseAnnotatePage() {
                 onClick={handleImageClick}
                 onContextMenu={handleContextMenu}
                 onMouseMove={() => keyboardMode && setKeyboardMode(false)}
+                onLoad={(e) => {
+                  const i = e.currentTarget;
+                  setImgDims({
+                    naturalW: i.naturalWidth,
+                    naturalH: i.naturalHeight,
+                    offsetL: i.offsetLeft,
+                    offsetT: i.offsetTop,
+                    clientW: i.clientWidth,
+                    clientH: i.clientHeight,
+                  });
+                }}
                 className="max-w-full max-h-[80vh] cursor-crosshair select-none"
                 draggable={false}
                 alt="frame"
               />
               {/* Render skeleton + keypoints overlay */}
-              {imgRef.current && (
+              {imgDims && (
                 <svg
                   className="absolute"
                   style={{
-                    left: imgRef.current.offsetLeft,
-                    top: imgRef.current.offsetTop,
-                    width: imgRef.current.clientWidth,
-                    height: imgRef.current.clientHeight,
+                    left: imgDims.offsetL,
+                    top: imgDims.offsetT,
+                    width: imgDims.clientW,
+                    height: imgDims.clientH,
                     pointerEvents: 'none',
                   }}
-                  viewBox={`0 0 ${imgRef.current.naturalWidth} ${imgRef.current.naturalHeight}`}
+                  viewBox={`0 0 ${imgDims.naturalW} ${imgDims.naturalH}`}
                   preserveAspectRatio="none"
                 >
                   {/* Skeleton lines (only between placed endpoints) */}
@@ -512,7 +543,7 @@ export default function PoseAnnotatePage() {
                     const vb = keypoints[b];
                     if (!va || !vb || va[2] === 0 || vb[2] === 0) return null;
                     const dashed = va[2] === 1 || vb[2] === 1;
-                    const sw = Math.max(2, imgRef.current!.naturalWidth / 400);
+                    const sw = Math.max(2, imgDims.naturalW / 400);
                     return (
                       <line
                         key={i}
@@ -529,8 +560,8 @@ export default function PoseAnnotatePage() {
                     if (!v || v[2] === 0) return null;
                     const isCurrent = kp.id === currentKp;
                     const isOccluded = v[2] === 1;
-                    const r = Math.max(6, imgRef.current!.naturalWidth / 120);
-                    const sw = Math.max(2, imgRef.current!.naturalWidth / 400);
+                    const r = Math.max(6, imgDims.naturalW / 120);
+                    const sw = Math.max(2, imgDims.naturalW / 400);
 
                     function onDown(e: React.PointerEvent<SVGGElement>) {
                       if (e.button !== 0) return;
@@ -615,9 +646,9 @@ export default function PoseAnnotatePage() {
                           strokeDasharray={isOccluded ? `${sw * 2} ${sw * 1.5}` : undefined}
                         />
                         <text
-                          x={v[0]} y={v[1] + Math.max(3, imgRef.current!.naturalWidth / 300)}
+                          x={v[0]} y={v[1] + Math.max(3, imgDims.naturalW / 300)}
                           textAnchor="middle"
-                          fontSize={Math.max(10, imgRef.current!.naturalWidth / 80)}
+                          fontSize={Math.max(10, imgDims.naturalW / 80)}
                           fontWeight="700"
                           fill="white"
                           style={{ pointerEvents: 'none', userSelect: 'none' }}
