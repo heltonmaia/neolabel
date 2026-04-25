@@ -140,6 +140,19 @@ def delete_annotated_items(project_id: int, current_user: AdminUser) -> dict:
     return {"deleted": count}
 
 
+@router.post("/projects/{project_id}/items/approve-all-done", tags=["items"])
+def approve_all_done_items(
+    project_id: int,
+    current_user: CurrentUser,
+    source_video: str | None = None,
+) -> dict:
+    """Bulk-approve every 'done' item in the project (admin/owner). Pass
+    ?source_video=... to restrict to one video's frames."""
+    _require_project_for_owner(project_id, current_user)
+    count = item_service.approve_all_done(project_id, source_video)
+    return {"approved": count}
+
+
 @router.put("/items/{item_id}/annotation", response_model=AnnotationRead, tags=["items"])
 def upsert_annotation(
     item_id: int, data: AnnotationUpsert, current_user: CurrentUser

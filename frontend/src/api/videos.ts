@@ -3,7 +3,8 @@ import { api } from './client';
 export interface VideoSummary {
   source_video: string;
   frames: number;
-  done: number;
+  done: number;       // annotated (done + reviewed combined)
+  reviewed: number;   // strict subset that's been signed off
   assigned_to: number | null;
 }
 

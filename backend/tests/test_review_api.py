@@ -196,6 +196,101 @@ def test_assignee_save_after_send_back_clears_note(client, auth_headers, project
     assert items[0]["review_note"] is None
 
 
+def test_approve_all_done_marks_only_done(client, auth_headers, project):
+    """Bulk approve sweeps every 'done' item and skips others (pending,
+    in_progress, already-reviewed)."""
+    pid = project["id"]
+    # 3 items: leave one pending, fully annotate two.
+    client.post(
+        f"/api/v1/projects/{pid}/items/bulk",
+        json={
+            "items": [
+                {"payload": {"image_url": "/a.jpg"}},
+                {"payload": {"image_url": "/b.jpg"}},
+                {"payload": {"image_url": "/c.jpg"}},
+            ]
+        },
+        headers=auth_headers,
+    )
+    items = client.get(
+        f"/api/v1/projects/{pid}/items", headers=auth_headers
+    ).json()["items"]
+    # Annotate first two fully, leave third pending.
+    for it in items[:2]:
+        client.put(
+            f"/api/v1/items/{it['id']}/annotation",
+            json={"value": {"keypoints": _full_kps()}},
+            headers=auth_headers,
+        )
+
+    r = client.post(
+        f"/api/v1/projects/{pid}/items/approve-all-done",
+        headers=auth_headers,
+    )
+    assert r.status_code == 200
+    assert r.json() == {"approved": 2}
+
+    statuses = sorted(
+        i["status"]
+        for i in client.get(
+            f"/api/v1/projects/{pid}/items", headers=auth_headers
+        ).json()["items"]
+    )
+    assert statuses == ["pending", "reviewed", "reviewed"]
+
+
+def test_approve_all_done_filtered_by_source_video(client, auth_headers, project):
+    pid = project["id"]
+    client.post(
+        f"/api/v1/projects/{pid}/items/bulk",
+        json={
+            "items": [
+                {"payload": {"image_url": "/v1-1.jpg", "source_video": "v1.mp4"}},
+                {"payload": {"image_url": "/v1-2.jpg", "source_video": "v1.mp4"}},
+                {"payload": {"image_url": "/v2-1.jpg", "source_video": "v2.mp4"}},
+            ]
+        },
+        headers=auth_headers,
+    )
+    items = client.get(
+        f"/api/v1/projects/{pid}/items", headers=auth_headers
+    ).json()["items"]
+    for it in items:
+        client.put(
+            f"/api/v1/items/{it['id']}/annotation",
+            json={"value": {"keypoints": _full_kps()}},
+            headers=auth_headers,
+        )
+
+    r = client.post(
+        f"/api/v1/projects/{pid}/items/approve-all-done?source_video=v1.mp4",
+        headers=auth_headers,
+    )
+    assert r.json() == {"approved": 2}
+
+    by_video = {
+        i["payload"]["source_video"]: i["status"]
+        for i in client.get(
+            f"/api/v1/projects/{pid}/items", headers=auth_headers
+        ).json()["items"]
+    }
+    # v1 frames are reviewed, v2 stays at done.
+    assert by_video["v1.mp4"] == "reviewed"
+    assert by_video["v2.mp4"] == "done"
+
+
+def test_approve_all_done_requires_owner_or_admin(
+    client, auth_headers, second_user_headers, project
+):
+    iid = _make_done_item(client, project["id"], auth_headers)
+    assert iid  # silence unused var
+    r = client.post(
+        f"/api/v1/projects/{project['id']}/items/approve-all-done",
+        headers=second_user_headers,
+    )
+    assert r.status_code == 404
+
+
 def test_partial_save_after_send_back_keeps_note(client, auth_headers, project):
     """A partial save (still in_progress) shouldn't drop the note — annotator
     is mid-fix, the prompt should stay until they finish."""
