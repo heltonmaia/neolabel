@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """NeoLabel dev runner — interactive menu (Docker-based).
 
-Run: python run.py
+Run: python run-dev.py
 
 Config via env:
     BACKEND_PORT    (default 8000)

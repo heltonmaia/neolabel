@@ -134,7 +134,7 @@ docker compose up --build -d
 Or use the interactive menu, which wraps the same commands:
 
 ```bash
-python run.py
+python run-dev.py
 ```
 
 Menu options: up (build + start), down, logs (follow), status, open UI,
@@ -198,7 +198,7 @@ See `.env.example`. Main ones:
 docker compose exec backend pytest
 
 # or, from the interactive menu
-python run.py   # → "Run backend tests"
+python run-dev.py   # → "Run backend tests"
 ```
 
 Each test runs against an isolated `DATA_DIR` via an autouse fixture, so
