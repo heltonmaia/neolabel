@@ -26,26 +26,37 @@ export const COCO_KEYPOINTS: Keypoint[] = [
   { id: 16, name: 'right_ankle',    label: 'Right ankle',    side: 'right'  },
 ];
 
-// Reference positions on the avatar canvas (viewBox 200 x 400)
-// Baby proportions: large head (~1/4 height), short limbs
+// Reference positions on the avatar canvas (viewBox 200 x 400).
+// Baby proportions: large head (~1/4 height), short limbs.
+//
+// Convention: COCO-17 is anatomical — `left_*` is the SUBJECT's anatomical
+// left side. The avatar is drawn frontal (facing the viewer), so the
+// subject's anatomical left appears on the VIEWER'S RIGHT side of the
+// canvas. Hence left_* keypoints sit at x>100 and right_* at x<100.
+//
+// Earlier the avatar was drawn mirror-style (left_* on viewer's left),
+// which silently disagreed with what the rest of the world means by COCO
+// `left_eye`. Saved annotations were already COCO-anatomical (annotators
+// followed the text labels in the side panel, not the avatar position),
+// so this is a pure visual correction — no data migration needed.
 export const AVATAR_POSITIONS: Record<number, [number, number]> = {
   0:  [100, 70],    // nose
-  1:  [90,  60],    // left eye
-  2:  [110, 60],    // right eye
-  3:  [75,  72],    // left ear
-  4:  [125, 72],    // right ear
-  5:  [70,  140],   // left shoulder
-  6:  [130, 140],   // right shoulder
-  7:  [55,  190],   // left elbow
-  8:  [145, 190],   // right elbow
-  9:  [45,  235],   // left wrist
-  10: [155, 235],   // right wrist
-  11: [82,  235],   // left hip
-  12: [118, 235],   // right hip
-  13: [78,  295],   // left knee
-  14: [122, 295],   // right knee
-  15: [75,  355],   // left ankle
-  16: [125, 355],   // right ankle
+  1:  [110, 60],    // left eye      (anatomical left → viewer's right)
+  2:  [90,  60],    // right eye
+  3:  [125, 72],    // left ear
+  4:  [75,  72],    // right ear
+  5:  [130, 140],   // left shoulder
+  6:  [70,  140],   // right shoulder
+  7:  [145, 190],   // left elbow
+  8:  [55,  190],   // right elbow
+  9:  [155, 235],   // left wrist
+  10: [45,  235],   // right wrist
+  11: [118, 235],   // left hip
+  12: [82,  235],   // right hip
+  13: [122, 295],   // left knee
+  14: [78,  295],   // right knee
+  15: [125, 355],   // left ankle
+  16: [75,  355],   // right ankle
 };
 
 // Skeleton edges (pairs of keypoint ids)
@@ -87,12 +98,14 @@ export const RODENT_KEYPOINTS: Keypoint[] = [
   { id: 6, name: 'tail_tip',    label: 'Tail tip',    side: 'center' },
 ];
 
-// Canvas 200x400 (same as COCO avatar). Rodent is viewed top-down and sits
-// centered on x=100 so ear L/R are mirror pairs.
+// Canvas 200x400 (same as COCO avatar). Rodent is viewed top-down with the
+// head pointing up; in that orientation the rodent's anatomical left is on
+// the viewer's right, matching the COCO convention used by the infant
+// schema. So left_ear sits at x>100 and right_ear at x<100.
 export const RODENT_AVATAR_POSITIONS: Record<number, [number, number]> = {
   0: [100, 45],    // nose
-  1: [80,  72],    // left ear
-  2: [120, 72],    // right ear
+  1: [120, 72],    // left ear  (anatomical left → viewer's right)
+  2: [80,  72],    // right ear
   3: [100, 160],   // body center
   4: [100, 240],   // tail base
   5: [100, 310],   // tail middle
