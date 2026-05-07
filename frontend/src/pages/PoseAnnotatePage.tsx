@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { me } from '@/api/auth';
 import { getProject } from '@/api/projects';
-import { getItem, listItems, reviewItem, saveAnnotation } from '@/api/items';
+import { getItem, listAllItems, reviewItem, saveAnnotation } from '@/api/items';
 import { FILES_BASE } from '@/lib/env';
 import BabyAvatar from '@/components/BabyAvatar';
 import RodentAvatar from '@/components/RodentAvatar';
@@ -120,7 +120,7 @@ export default function PoseAnnotatePage() {
   });
   const itemsQ = useQuery({
     queryKey: ['items', projectId],
-    queryFn: () => listItems(projectId),
+    queryFn: () => listAllItems(projectId),
   });
   const meQ = useQuery({ queryKey: ['me'], queryFn: me });
 
