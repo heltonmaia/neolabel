@@ -419,15 +419,28 @@ def _expected_kpts(project: dict | None) -> int:
 
 
 def _status_for(project: dict | None, value: dict) -> str:
-    """For pose projects, 'done' requires every keypoint in the project's
-    schema to be labeled (v>0). Non-pose projects are 'done' on any save."""
+    """For pose projects, 'done' requires every keypoint to be addressed —
+    either labeled (v>0) or explicitly marked out-of-frame via the parallel
+    `out_of_frame` boolean array. Non-pose projects are 'done' on any save.
+
+    The `out_of_frame` field is a NeoLabel addition; legacy annotations omit
+    it and fall back to the v>0 check, so historical data is unaffected.
+    Externally, an OOF keypoint stays as [0,0,0]/v=0 in the COCO array — the
+    same encoding standard COCO datasets use for "not in image".
+    """
     if not project or project.get("type") != "pose_detection":
         return ItemStatus.done.value
     expected = _expected_kpts(project)
     kps = value.get("keypoints") or []
-    if len(kps) == expected and all(isinstance(k, list) and len(k) >= 3 and k[2] > 0 for k in kps):
-        return ItemStatus.done.value
-    return ItemStatus.in_progress.value
+    if len(kps) != expected:
+        return ItemStatus.in_progress.value
+    oof = value.get("out_of_frame") or []
+    for i, k in enumerate(kps):
+        labeled = isinstance(k, list) and len(k) >= 3 and k[2] > 0
+        out_of_frame = i < len(oof) and bool(oof[i])
+        if not (labeled or out_of_frame):
+            return ItemStatus.in_progress.value
+    return ItemStatus.done.value
 
 
 def upsert_annotation(item: dict, annotator_id: int, data: AnnotationUpsert) -> AnnotationRead:

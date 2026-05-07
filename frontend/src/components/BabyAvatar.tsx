@@ -8,6 +8,8 @@ import {
 interface Props {
   currentId: number;
   keypoints: Record<number, KeypointValue | null>;
+  /** Ids of keypoints the annotator marked as "out of frame". */
+  outOfFrame?: ReadonlySet<number>;
   onSelect: (id: number) => void;
 }
 
@@ -20,7 +22,7 @@ const REGION_COLOR: Record<number, string> = {
   13: '#a855f7', 14: '#a855f7', 15: '#a855f7', 16: '#a855f7',           // legs
 };
 
-export default function BabyAvatar({ currentId, keypoints, onSelect }: Props) {
+export default function BabyAvatar({ currentId, keypoints, outOfFrame, onSelect }: Props) {
   return (
     <svg viewBox="0 0 220 420" className="w-full max-w-[240px] mx-auto block">
       <defs>
@@ -96,11 +98,19 @@ export default function BabyAvatar({ currentId, keypoints, onSelect }: Props) {
         const x = rawX + 10, y = rawY + 10;  // shifted to keep positions centered on new bigger avatar
         const value = keypoints[kp.id];
         const isCurrent = kp.id === currentId;
+        const isOOF = !!outOfFrame?.has(kp.id);
         const isDone = !!value && value[2] > 0;
         const isOccluded = !!value && value[2] === 1;
         const baseColor = REGION_COLOR[kp.id] ?? '#64748b';
-        const fill = isCurrent ? '#ef4444' : isDone ? baseColor : '#e2e8f0';
-        const stroke = isCurrent ? '#991b1b' : isDone ? '#1e293b' : '#94a3b8';
+        const fill = isCurrent
+          ? '#ef4444'
+          : isOOF
+            ? '#94a3b8'
+            : isDone
+              ? baseColor
+              : '#e2e8f0';
+        const stroke = isCurrent ? '#991b1b' : isOOF ? '#475569' : isDone ? '#1e293b' : '#94a3b8';
+        const r = isCurrent ? 11 : 9;
 
         return (
           <g key={kp.id} onClick={() => onSelect(kp.id)} className="cursor-pointer group">
@@ -112,19 +122,27 @@ export default function BabyAvatar({ currentId, keypoints, onSelect }: Props) {
             )}
             <circle
               cx={x} cy={y}
-              r={isCurrent ? 11 : 9}
+              r={r}
               fill={fill}
               stroke={stroke}
               strokeWidth="1.5"
               className="transition-all group-hover:stroke-slate-900"
               strokeDasharray={isOccluded ? '2 2' : undefined}
             />
+            {isOOF && (
+              <line
+                x1={x - r * 0.7} y1={y - r * 0.7}
+                x2={x + r * 0.7} y2={y + r * 0.7}
+                stroke="#1e293b" strokeWidth="1.5" strokeLinecap="round"
+                pointerEvents="none"
+              />
+            )}
             <text
               x={x} y={y + 3.5}
               textAnchor="middle"
               fontSize="9.5"
               fontWeight="700"
-              fill={isCurrent || isDone ? 'white' : '#475569'}
+              fill={isCurrent || isDone || isOOF ? 'white' : '#475569'}
               className="pointer-events-none select-none"
             >
               {kp.id + 1}
