@@ -33,16 +33,28 @@ export async function bulkUpload(projectId: number, items: { payload: Record<str
   return data;
 }
 
-// Default limit matches the backend's max (Query(..., le=500)) so the
-// annotator's Prev/Next navigator covers every item in the project. If a
-// project ever needs >500 items, this needs paged-navigation logic, not
-// just a higher cap.
 export async function listItems(projectId: number, limit = 500, offset = 0) {
   const { data } = await api.get<{ total: number; items: Item[] }>(
     `/projects/${projectId}/items`,
     { params: { limit, offset } },
   );
   return data;
+}
+
+// Pages through every item in the project. Used by the project page (so the
+// assignee dropdown sees all distinct annotators) and by the annotator
+// Prev/Next navigator (so it can walk the full queue). The backend caps each
+// page at 500 (le=500), so we loop until we've accumulated `total`.
+export async function listAllItems(projectId: number) {
+  const PAGE = 500;
+  const first = await listItems(projectId, PAGE, 0);
+  const items = [...first.items];
+  while (items.length < first.total) {
+    const next = await listItems(projectId, PAGE, items.length);
+    if (next.items.length === 0) break;
+    items.push(...next.items);
+  }
+  return { total: first.total, items };
 }
 
 export async function getItem(id: number) {

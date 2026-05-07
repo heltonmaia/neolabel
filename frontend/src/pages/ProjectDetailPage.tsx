@@ -16,7 +16,7 @@ import {
   deleteAnnotatedItems,
   deleteItem,
   findOutliers,
-  listItems,
+  listAllItems,
   type ItemStatus,
   type OutlierItem,
 } from '@/api/items';
@@ -57,7 +57,7 @@ export default function ProjectDetailPage() {
   });
   const itemsQ = useQuery({
     queryKey: ['items', projectId],
-    queryFn: () => listItems(projectId, 500, 0),
+    queryFn: () => listAllItems(projectId),
   });
 
   const [labelName, setLabelName] = useState('');
