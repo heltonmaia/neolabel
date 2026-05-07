@@ -215,6 +215,68 @@ def test_pose_item_stays_in_progress_until_all_17_keypoints(
     assert items[0]["status"] == "done"
 
 
+def test_out_of_frame_keypoints_count_as_addressed(
+    client, auth_headers, project
+):
+    """Pose items reach `done` when every keypoint is either labeled (v>0) or
+    explicitly marked out-of-frame via the parallel `out_of_frame` array."""
+    client.post(
+        f"/api/v1/projects/{project['id']}/items/bulk",
+        json={"items": [{"payload": {"image_url": "/x.jpg"}}]},
+        headers=auth_headers,
+    )
+    iid = client.get(
+        f"/api/v1/projects/{project['id']}/items", headers=auth_headers
+    ).json()["items"][0]["id"]
+
+    # 16 keypoints placed, 1 left as [0,0,0] without an OOF flag → still in_progress.
+    kps = [[i * 10, i * 10, 2] for i in range(16)] + [[0, 0, 0]]
+    client.put(
+        f"/api/v1/items/{iid}/annotation",
+        json={"value": {"keypoints": kps}},
+        headers=auth_headers,
+    )
+    item = client.get(f"/api/v1/items/{iid}", headers=auth_headers).json()
+    assert item["status"] == "in_progress"
+
+    # Same shape, but with out_of_frame[16]=true → addressed → done.
+    oof = [False] * 16 + [True]
+    client.put(
+        f"/api/v1/items/{iid}/annotation",
+        json={"value": {"keypoints": kps, "out_of_frame": oof}},
+        headers=auth_headers,
+    )
+    item = client.get(f"/api/v1/items/{iid}", headers=auth_headers).json()
+    assert item["status"] == "done"
+    # Saved annotation round-trips both fields.
+    assert item["annotation"]["value"]["keypoints"][16] == [0, 0, 0]
+    assert item["annotation"]["value"]["out_of_frame"][16] is True
+
+
+def test_legacy_annotation_without_out_of_frame_still_works(
+    client, auth_headers, project
+):
+    """Pre-existing annotations omit the `out_of_frame` field; the v>0 rule
+    still decides done/in_progress, so historical data behaves unchanged."""
+    client.post(
+        f"/api/v1/projects/{project['id']}/items/bulk",
+        json={"items": [{"payload": {"image_url": "/x.jpg"}}]},
+        headers=auth_headers,
+    )
+    iid = client.get(
+        f"/api/v1/projects/{project['id']}/items", headers=auth_headers
+    ).json()["items"][0]["id"]
+
+    full = [[i * 10, i * 10, 2] for i in range(17)]
+    client.put(
+        f"/api/v1/items/{iid}/annotation",
+        json={"value": {"keypoints": full}},
+        headers=auth_headers,
+    )
+    item = client.get(f"/api/v1/items/{iid}", headers=auth_headers).json()
+    assert item["status"] == "done"
+
+
 def test_export_yolo_zip_contains_dataset(client, auth_headers, project, tmp_path):
     import io
     import zipfile

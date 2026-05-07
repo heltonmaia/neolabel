@@ -131,6 +131,11 @@ export default function PoseAnnotatePage() {
 
   const [currentKp, setCurrentKp] = useState(0);
   const [keypoints, setKeypoints] = useState<KeypointsMap>(() => emptyKeypoints(schemaKps));
+  // Keypoints the annotator explicitly marked as "out of frame" — they're
+  // saved as [0,0,0]/v=0 (the COCO encoding for "not in image") plus a
+  // parallel `out_of_frame` boolean array on the annotation value, so the
+  // backend can tell them apart from "not yet labeled".
+  const [outOfFrame, setOutOfFrame] = useState<Set<number>>(() => new Set());
   const [orderMode, setOrderMode] = useState<OrderMode>(() => {
     const saved = typeof window !== 'undefined' ? localStorage.getItem(ORDER_STORAGE_KEY) : null;
     return saved && saved in ORDERINGS ? (saved as OrderMode) : 'top';
@@ -149,7 +154,7 @@ export default function PoseAnnotatePage() {
   // frames in a pose project are 640x640, so leaving the previous dims in
   // place for a frame is invisible.
   const [imgDims, setImgDims] = useState<ImgDims | null>(null);
-  const historyRef = useRef<KeypointsMap[]>([]);
+  const historyRef = useRef<{ kps: KeypointsMap; oof: Set<number> }[]>([]);
   const imgRef = useRef<HTMLImageElement>(null);
   const draggingRef = useRef<DragState | null>(null);
   const nudgeTimerRef = useRef<number | null>(null);
@@ -213,11 +218,15 @@ export default function PoseAnnotatePage() {
   });
 
   const save = useMutation({
-    mutationFn: (kps: KeypointsMap) => {
+    mutationFn: (payload: { kps: KeypointsMap; oof: Set<number> }) => {
       const arr: KeypointValue[] = schemaKps.map(
-        (kp) => kps[kp.id] ?? ([0, 0, 0] as KeypointValue),
+        (kp) => payload.kps[kp.id] ?? ([0, 0, 0] as KeypointValue),
       );
-      return saveAnnotation(currentItemId, { keypoints: arr });
+      const oofArr = schemaKps.map((kp) => payload.oof.has(kp.id));
+      return saveAnnotation(currentItemId, {
+        keypoints: arr,
+        out_of_frame: oofArr,
+      });
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['items', projectId] });
@@ -294,42 +303,51 @@ export default function PoseAnnotatePage() {
 
     if (itemQ.data.annotation) {
       const existing = itemQ.data.annotation.value as
-        | { keypoints?: KeypointValue[] }
+        | { keypoints?: KeypointValue[]; out_of_frame?: boolean[] }
         | undefined;
       const m = emptyKeypoints(schemaKps);
+      const oof = new Set<number>();
       if (existing?.keypoints && existing.keypoints.length === N) {
         existing.keypoints.forEach((v, i) => {
           m[i] = v[2] > 0 ? v : null;
         });
       }
+      if (existing?.out_of_frame && existing.out_of_frame.length === N) {
+        existing.out_of_frame.forEach((flag, i) => {
+          if (flag) oof.add(i);
+        });
+      }
       setKeypoints(m);
+      setOutOfFrame(oof);
       historyRef.current = [];
       setCurrentKp(sequence[0]);
       return;
     }
 
     setKeypoints(emptyKeypoints(schemaKps));
+    setOutOfFrame(new Set());
     historyRef.current = [];
     setCurrentKp(sequence[0]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentItemId, itemQ.data?.id, schema]);
 
   function pushHistory() {
-    historyRef.current.push({ ...keypoints });
+    historyRef.current.push({ kps: { ...keypoints }, oof: new Set(outOfFrame) });
     if (historyRef.current.length > 50) historyRef.current.shift();
   }
 
-  function advanceAfterPlace(nextMap: KeypointsMap, placed: number) {
+  function advanceAfterPlace(nextMap: KeypointsMap, nextOof: Set<number>, placed: number) {
     const placedIdx = sequence.indexOf(placed);
-    // Walk the chosen sequence forward looking for the next empty slot.
+    // Walk the chosen sequence forward looking for the next unaddressed slot
+    // — neither placed nor explicitly out-of-frame.
     for (let i = 1; i < N; i++) {
       const cand = sequence[(placedIdx + i) % N];
-      if (!nextMap[cand]) {
+      if (!nextMap[cand] && !nextOof.has(cand)) {
         setCurrentKp(cand);
         return;
       }
     }
-    // Everything labeled — advance to the next position in sequence (or stay).
+    // Everything addressed — advance to the next position in sequence (or stay).
     if (placedIdx >= 0 && placedIdx < N - 1) setCurrentKp(sequence[placedIdx + 1]);
   }
 
@@ -347,9 +365,26 @@ export default function PoseAnnotatePage() {
       ...keypoints,
       [currentKp]: [Math.round(xNat), Math.round(yNat), visibility],
     };
+    // Placing a point overrides any prior "out of frame" mark for that kp.
+    const nextOof = outOfFrame.has(currentKp) ? new Set(outOfFrame) : outOfFrame;
+    if (nextOof !== outOfFrame) {
+      nextOof.delete(currentKp);
+      setOutOfFrame(nextOof);
+    }
     setKeypoints(nextMap);
-    save.mutate(nextMap);
-    advanceAfterPlace(nextMap, currentKp);
+    save.mutate({ kps: nextMap, oof: nextOof });
+    advanceAfterPlace(nextMap, nextOof, currentKp);
+  }
+
+  function markOutOfFrame() {
+    pushHistory();
+    const nextMap: KeypointsMap = { ...keypoints, [currentKp]: null };
+    const nextOof = new Set(outOfFrame);
+    nextOof.add(currentKp);
+    setKeypoints(nextMap);
+    setOutOfFrame(nextOof);
+    save.mutate({ kps: nextMap, oof: nextOof });
+    advanceAfterPlace(nextMap, nextOof, currentKp);
   }
 
   function handleImageClick(e: React.MouseEvent<HTMLImageElement>) {
@@ -385,8 +420,13 @@ export default function PoseAnnotatePage() {
   function clearCurrent() {
     pushHistory();
     const nextMap: KeypointsMap = { ...keypoints, [currentKp]: null };
+    const nextOof = outOfFrame.has(currentKp) ? new Set(outOfFrame) : outOfFrame;
+    if (nextOof !== outOfFrame) {
+      nextOof.delete(currentKp);
+      setOutOfFrame(nextOof);
+    }
     setKeypoints(nextMap);
-    save.mutate(nextMap);
+    save.mutate({ kps: nextMap, oof: nextOof });
   }
 
   function clearAll() {
@@ -398,8 +438,10 @@ export default function PoseAnnotatePage() {
       onConfirm: () => {
         pushHistory();
         const m = emptyKeypoints(schemaKps);
+        const o = new Set<number>();
         setKeypoints(m);
-        save.mutate(m);
+        setOutOfFrame(o);
+        save.mutate({ kps: m, oof: o });
         setCurrentKp(0);
       },
     });
@@ -411,6 +453,10 @@ export default function PoseAnnotatePage() {
   const hasPrevPose =
     !!prevPoseKps && prevPoseKps.length === N && prevPoseKps.some((v) => v[2] > 0);
 
+  const prevOofFlags = (prevItemQ.data?.annotation?.value as
+    | { out_of_frame?: boolean[] }
+    | undefined)?.out_of_frame;
+
   function copyPreviousPose() {
     if (!prevPoseKps) return;
     const apply = () => {
@@ -419,8 +465,15 @@ export default function PoseAnnotatePage() {
       prevPoseKps.forEach((v, i) => {
         m[i] = v[2] > 0 ? v : null;
       });
+      const o = new Set<number>();
+      if (prevOofFlags && prevOofFlags.length === N) {
+        prevOofFlags.forEach((flag, i) => {
+          if (flag) o.add(i);
+        });
+      }
       setKeypoints(m);
-      save.mutate(m);
+      setOutOfFrame(o);
+      save.mutate({ kps: m, oof: o });
       setCurrentKp(sequence[0]);
     };
     const hasPlaced = Object.values(keypoints).some((v) => v && v[2] > 0);
@@ -439,8 +492,9 @@ export default function PoseAnnotatePage() {
   function undo() {
     const prev = historyRef.current.pop();
     if (!prev) return;
-    setKeypoints(prev);
-    save.mutate(prev);
+    setKeypoints(prev.kps);
+    setOutOfFrame(prev.oof);
+    save.mutate({ kps: prev.kps, oof: prev.oof });
   }
 
   // Rapid Shift+Arrow presses coalesce into one undo step and one save:
@@ -464,7 +518,7 @@ export default function PoseAnnotatePage() {
     if (saveDebounceRef.current !== null) clearTimeout(saveDebounceRef.current);
     saveDebounceRef.current = window.setTimeout(() => {
       setKeypoints((latest) => {
-        save.mutate(latest);
+        save.mutate({ kps: latest, oof: outOfFrame });
         return latest;
       });
       saveDebounceRef.current = null;
@@ -522,6 +576,7 @@ export default function PoseAnnotatePage() {
       // Actions
       if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); placeAtCursor(); return; }
       if (e.key === 'o' || e.key === 'O') return markOccluded();
+      if (e.key === 'x' || e.key === 'X') return markOutOfFrame();
       if (e.key === 'u' || e.key === 'U') return undo();
       if (e.key === 'Backspace') return clearCurrent();
       if (e.key === 'c' || e.key === 'C') return clearAll();
@@ -542,7 +597,7 @@ export default function PoseAnnotatePage() {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentKp, keypoints, prev, next, cursor, confirm.isOpen, canReview, itemQ.data?.status]);
+  }, [currentKp, keypoints, outOfFrame, prev, next, cursor, confirm.isOpen, canReview, itemQ.data?.status]);
 
   if (itemQ.isLoading || projectQ.isLoading) return <p className="p-6">Loading…</p>;
   if (!itemQ.data || !projectQ.data) return <p className="p-6">Not found.</p>;
@@ -560,7 +615,11 @@ export default function PoseAnnotatePage() {
   };
   const imageUrl = payload.image_url;
   const fullUrl = imageUrl ? `${FILES_BASE}${imageUrl}` : null;
-  const doneCount = Object.values(keypoints).filter((v) => v && v[2] > 0).length;
+  // A keypoint is "addressed" (counts toward completion) if it's been placed
+  // OR explicitly marked out of frame.
+  const placedCount = Object.values(keypoints).filter((v) => v && v[2] > 0).length;
+  const oofCount = outOfFrame.size;
+  const doneCount = placedCount + oofCount;
   const isComplete = doneCount === N;
 
   return (
@@ -749,7 +808,7 @@ export default function PoseAnnotatePage() {
                       if (drag?.moved) {
                         // read latest state via functional setter, then persist
                         setKeypoints((latest) => {
-                          save.mutate(latest);
+                          save.mutate({ kps: latest, oof: outOfFrame });
                           return latest;
                         });
                       } else {
@@ -981,12 +1040,14 @@ export default function PoseAnnotatePage() {
             <RodentAvatar
               currentId={currentKp}
               keypoints={keypoints}
+              outOfFrame={outOfFrame}
               onSelect={setCurrentKp}
             />
           ) : (
             <BabyAvatar
               currentId={currentKp}
               keypoints={keypoints}
+              outOfFrame={outOfFrame}
               onSelect={setCurrentKp}
             />
           )}
@@ -1033,17 +1094,17 @@ export default function PoseAnnotatePage() {
           <div className="grid grid-cols-2 gap-2 text-sm">
             <button
               onClick={markOccluded}
-              title="Mark occluded (right-click)"
+              title="Mark occluded (right-click / O) — point exists, you know where"
               className="px-3 py-2 rounded-lg border border-slate-200 bg-white text-slate-700 font-medium hover:bg-slate-50 hover:border-slate-300 active:translate-y-px transition"
             >
               Occluded
             </button>
             <button
-              onClick={undo}
-              title="Undo (U)"
+              onClick={markOutOfFrame}
+              title="Mark out of frame (X) — keypoint is not in the image (saved as v=0)"
               className="px-3 py-2 rounded-lg border border-slate-200 bg-white text-slate-700 font-medium hover:bg-slate-50 hover:border-slate-300 active:translate-y-px transition"
             >
-              Undo
+              Out of frame
             </button>
             <button
               onClick={clearCurrent}
@@ -1053,9 +1114,16 @@ export default function PoseAnnotatePage() {
               Clear point
             </button>
             <button
+              onClick={undo}
+              title="Undo (U)"
+              className="px-3 py-2 rounded-lg border border-slate-200 bg-white text-slate-700 font-medium hover:bg-slate-50 hover:border-slate-300 active:translate-y-px transition"
+            >
+              Undo
+            </button>
+            <button
               onClick={clearAll}
               title="Clear all keypoints (C)"
-              className="px-3 py-2 rounded-lg border border-red-200 bg-white text-red-600 font-medium hover:bg-red-50 hover:border-red-300 active:translate-y-px transition"
+              className="col-span-2 px-3 py-2 rounded-lg border border-red-200 bg-white text-red-600 font-medium hover:bg-red-50 hover:border-red-300 active:translate-y-px transition"
             >
               Clear all
             </button>
@@ -1072,9 +1140,13 @@ export default function PoseAnnotatePage() {
               <p><kbd className="border rounded px-1">Tab</kbd> / <kbd className="border rounded px-1">N</kbd> next keypoint · <kbd className="border rounded px-1">Shift+Tab</kbd> / <kbd className="border rounded px-1">P</kbd> previous (walks the chosen order)</p>
               <p><kbd className="border rounded px-1">1</kbd>…<kbd className="border rounded px-1">9</kbd> jump to keypoint 1–9</p>
               <p><kbd className="border rounded px-1">[</kbd> / <kbd className="border rounded px-1">]</kbd> previous / next item</p>
-              <p><b>Left click</b> / <kbd className="border rounded px-1">Enter</kbd> = visible · <b>Right click</b> / <kbd className="border rounded px-1">O</kbd> = occluded (position still required)</p>
+              <p><b>Left click</b> / <kbd className="border rounded px-1">Enter</kbd> = visible · <b>Right click</b> / <kbd className="border rounded px-1">O</kbd> = occluded (position still required) · <kbd className="border rounded px-1">X</kbd> = out of frame</p>
               <p><kbd className="border rounded px-1">U</kbd> undo · <kbd className="border rounded px-1">⌫</kbd> clear current · <kbd className="border rounded px-1">C</kbd> clear all</p>
-              <p className="text-slate-500 pt-1 border-t">Occluded points appear as dashed orange circles. Use when the keypoint is covered but you can estimate its position.</p>
+              <p className="text-slate-500 pt-1 border-t">
+                Occluded = dashed orange circle on the image (covered, position estimated).
+                Out of frame = no point on the image; the avatar shows the slot crossed-out.
+                On export, out-of-frame keypoints follow COCO convention: <code>[0, 0, 0]</code> with <code>v=0</code>.
+              </p>
             </div>
           </details>
         </aside>
