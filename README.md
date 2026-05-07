@@ -53,8 +53,9 @@ keyboard shortcuts, and export the result.
     row (dashed/italic when unassigned).
 - **Annotation UI**:
   - Mouse or full-keyboard workflow (arrows + Enter/Space).
-  - Shortcuts: `Tab`/`N` next keypoint, `1`–`9` jump, `O` hidden, `U`
-    undo, `[` / `]` previous/next item.
+  - Shortcuts: `Tab`/`N` next keypoint, `1`–`9` jump, `O` occluded,
+    `X` out of frame (saved as COCO `v=0`), `U` undo, `[` / `]`
+    previous/next item.
   - Undo history (50 steps), clear point / clear all.
   - Auto-save on every action.
   - **Traversal order** — choose top-to-bottom (default), left-contour,
