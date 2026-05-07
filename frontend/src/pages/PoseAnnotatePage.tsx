@@ -1095,37 +1095,42 @@ export default function PoseAnnotatePage() {
             <button
               onClick={markOccluded}
               title="Mark occluded (right-click / O) — point exists, you know where"
-              className="px-3 py-2 rounded-lg border border-slate-200 bg-white text-slate-700 font-medium hover:bg-slate-50 hover:border-slate-300 active:translate-y-px transition"
+              className="px-3 py-2 rounded-lg border border-slate-200 bg-white text-slate-700 font-medium hover:bg-slate-50 hover:border-slate-300 active:translate-y-px transition inline-flex items-center justify-center gap-1.5"
             >
               Occluded
+              <kbd className="text-[10px] font-mono border border-slate-300 rounded px-1 py-px text-slate-500 bg-slate-50">O</kbd>
             </button>
             <button
               onClick={markOutOfFrame}
               title="Mark out of frame (X) — keypoint is not in the image (saved as v=0)"
-              className="px-3 py-2 rounded-lg border border-slate-200 bg-white text-slate-700 font-medium hover:bg-slate-50 hover:border-slate-300 active:translate-y-px transition"
+              className="px-3 py-2 rounded-lg border border-slate-200 bg-white text-slate-700 font-medium hover:bg-slate-50 hover:border-slate-300 active:translate-y-px transition inline-flex items-center justify-center gap-1.5"
             >
               Out of frame
+              <kbd className="text-[10px] font-mono border border-slate-300 rounded px-1 py-px text-slate-500 bg-slate-50">X</kbd>
             </button>
             <button
               onClick={clearCurrent}
               title="Clear current keypoint (Backspace)"
-              className="px-3 py-2 rounded-lg border border-slate-200 bg-white text-slate-700 font-medium hover:bg-slate-50 hover:border-slate-300 active:translate-y-px transition"
+              className="px-3 py-2 rounded-lg border border-slate-200 bg-white text-slate-700 font-medium hover:bg-slate-50 hover:border-slate-300 active:translate-y-px transition inline-flex items-center justify-center gap-1.5"
             >
               Clear point
+              <kbd className="text-[10px] font-mono border border-slate-300 rounded px-1 py-px text-slate-500 bg-slate-50">⌫</kbd>
             </button>
             <button
               onClick={undo}
               title="Undo (U)"
-              className="px-3 py-2 rounded-lg border border-slate-200 bg-white text-slate-700 font-medium hover:bg-slate-50 hover:border-slate-300 active:translate-y-px transition"
+              className="px-3 py-2 rounded-lg border border-slate-200 bg-white text-slate-700 font-medium hover:bg-slate-50 hover:border-slate-300 active:translate-y-px transition inline-flex items-center justify-center gap-1.5"
             >
               Undo
+              <kbd className="text-[10px] font-mono border border-slate-300 rounded px-1 py-px text-slate-500 bg-slate-50">U</kbd>
             </button>
             <button
               onClick={clearAll}
               title="Clear all keypoints (C)"
-              className="col-span-2 px-3 py-2 rounded-lg border border-red-200 bg-white text-red-600 font-medium hover:bg-red-50 hover:border-red-300 active:translate-y-px transition"
+              className="col-span-2 px-3 py-2 rounded-lg border border-red-200 bg-white text-red-600 font-medium hover:bg-red-50 hover:border-red-300 active:translate-y-px transition inline-flex items-center justify-center gap-1.5"
             >
               Clear all
+              <kbd className="text-[10px] font-mono border border-red-300 rounded px-1 py-px text-red-500 bg-red-50">C</kbd>
             </button>
           </div>
 
