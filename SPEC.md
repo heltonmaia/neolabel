@@ -51,8 +51,35 @@ Core records:
 - `item.payload` is free-form JSON:
   - text items: `{text: str}`
   - pose frames: `{source_video: str, frame_index: int, image_url: str}`
-- `annotation.value` is label-type-specific JSON (e.g. for pose,
-  `{keypoints: [[x, y, visibility], ...]}`).
+- `annotation.value` is label-type-specific JSON. For pose:
+  ```json
+  {
+    "keypoints": [[x, y, v], ...],
+    "out_of_frame": [false, ..., true]   // optional, length must match keypoints
+  }
+  ```
+  - `v` is the COCO visibility flag: `0` = not labeled / out of image,
+    `1` = labeled but occluded (you know where, but it's covered),
+    `2` = labeled and visible.
+  - `out_of_frame[i] = true` is a NeoLabel-only marker that the
+    annotator **explicitly** said this keypoint is not in the image
+    (e.g. cropped out). The corresponding `keypoints[i]` is
+    `[0, 0, 0]` — the same encoding COCO datasets use for "not in
+    image", so YOLO/COCO exports stay standard. The parallel array
+    only exists so the backend can tell "annotator marked OOF" apart
+    from "annotator hasn't gotten to it yet".
+  - Legacy annotations omit `out_of_frame` entirely; the backend
+    treats them with the v>0 rule (see ItemStatus below).
+
+### Pose item completion
+
+Pose items reach `done` when **every** keypoint is *addressed* — either
+labeled (`v > 0`) or explicitly marked out-of-frame
+(`out_of_frame[i] = true`). Anything else stays `in_progress`. Without
+the OOF marker an annotator can never finish a frame where part of the
+subject is genuinely outside the image, which is why the field exists.
+
+Non-pose item types are `done` on any save.
 
 ### Keypoint schemas (`pose_detection`)
 
