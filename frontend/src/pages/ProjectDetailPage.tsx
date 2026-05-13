@@ -122,7 +122,7 @@ export default function ProjectDetailPage() {
 
   // Videos table filters (admin)
   const [videoQuery, setVideoQuery] = useState('');
-  const [videoAssigneeFilter, setVideoAssigneeFilter] = useState<number | ''>('');
+  const [videoAssigneeFilter, setVideoAssigneeFilter] = useState<number | '' | 'unassigned'>('');
 
   // Items filters / view. 'needs_revision' is a virtual sub-bucket of
   // in_progress (those carrying a review_note from a send-back).
@@ -1117,7 +1117,9 @@ export default function ProjectDetailPage() {
         const q = videoQuery.trim().toLowerCase();
         const filtered = all.filter((v) => {
           if (q && !v.source_video.toLowerCase().includes(q)) return false;
-          if (videoAssigneeFilter !== '' && v.assigned_to !== videoAssigneeFilter) return false;
+          if (videoAssigneeFilter === 'unassigned') {
+            if (v.assigned_to != null) return false;
+          } else if (videoAssigneeFilter !== '' && v.assigned_to !== videoAssigneeFilter) return false;
           return true;
         });
         const totals = filtered.reduce(
@@ -1168,13 +1170,17 @@ export default function ProjectDetailPage() {
                   className="border rounded px-2 py-1 text-sm"
                 />
                 <select
-                  value={videoAssigneeFilter}
-                  onChange={(e) =>
-                    setVideoAssigneeFilter(e.target.value ? Number(e.target.value) : '')
-                  }
+                  value={videoAssigneeFilter === '' ? '' : String(videoAssigneeFilter)}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setVideoAssigneeFilter(
+                      v === '' ? '' : v === 'unassigned' ? 'unassigned' : Number(v),
+                    );
+                  }}
                   className="border rounded px-2 py-1 text-sm"
                 >
                   <option value="">All annotators</option>
+                  <option value="unassigned">— unassigned —</option>
                   {(usersQ.data ?? []).map((u) => (
                     <option key={u.id} value={u.id}>
                       {u.username}
