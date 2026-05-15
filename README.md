@@ -39,6 +39,7 @@ keyboard shortcuts, and export the result.
   <br>
   <sub><em>Rodent keypoint schema currently in use.</em></sub>
 </p>
+
 - **Admin-only video upload** — optionally assigned to a specific
   annotator, or left in the admin pool (extracted frames with no
   assignee). Admins can reassign a whole video to another user, clear
