@@ -1,0 +1,28 @@
+cff-version: 1.2.0
+title: NeoLabel
+message: >-
+  If you use this software in academic work, please cite it as below.
+type: software
+authors:
+  - given-names: Helton
+    family-names: Maia
+    email: helton.maia@ufrn.br
+    affiliation: Universidade Federal do Rio Grande do Norte
+url: "https://github.com/heltonmaia/neolabel"
+repository-code: "https://github.com/heltonmaia/neolabel"
+license: Apache-2.0
+abstract: >-
+  Software for video-based pose annotation — build Machine Learning
+  datasets for pose estimation and behavioral analysis. Primary use
+  cases are infant pose annotation and rodent behavior experiments
+  such as Open Field (OF) and Elevated Plus Maze (EPM).
+keywords:
+  - pose-estimation
+  - video-annotation
+  - behavioral-analysis
+  - infant-pose
+  - rodent-behavior
+  - open-field
+  - elevated-plus-maze
+  - machine-learning
+  - dataset-tools

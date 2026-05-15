@@ -9,7 +9,7 @@
 
 set -euo pipefail
 
-cd "$(dirname "$0")"
+cd "$(dirname "$0")/.."
 
 BRANCH="${BRANCH:-main}"
 PROJECT="neo-label-prod"

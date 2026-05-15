@@ -207,25 +207,26 @@ the suite never touches local data.
 
 ## License
 
-**[PolyForm Noncommercial License 1.0.0](./LICENSE)** — noncommercial
-use only; attribution required.
+**[Apache License 2.0](./LICENSE)** — permissive open-source license.
 
 Copyright (c) 2026 Helton Maia — <https://heltonmaia.com>
 
-- **Permitted**: personal, academic, and other noncommercial use,
-  including by educational institutions, public research
-  organizations, and government bodies. Modifications and
-  redistribution are allowed under the same terms.
-- **Not permitted**: any commercial use without a separate license
-  from the author.
-- **Required**: keep the license notice (including the
-  `Required Notice: Copyright (c) 2026 Helton Maia`) with any copy
-  or derivative of the software. If you use this in academic work,
-  please cite the project and the author.
+- **Permitted**: commercial and non-commercial use, modification,
+  distribution, sublicensing, and private use. Includes an explicit,
+  irrevocable patent grant from contributors (subject to the
+  retaliation clause if you sue for patent infringement).
+- **Required**: include a copy of the `LICENSE` and `NOTICE` files
+  in any redistribution; preserve copyright, patent, trademark, and
+  attribution notices; mark any modified files as changed.
+- **Not granted**: rights to the project's name, trademarks, or
+  logos beyond what is needed to describe the origin of the work.
 
 Full terms: [LICENSE](./LICENSE) ·
-[polyformproject.org](https://polyformproject.org/licenses/noncommercial/1.0.0/).
-For commercial licensing, contact the author.
+[apache.org/licenses/LICENSE-2.0](https://www.apache.org/licenses/LICENSE-2.0).
+
+If you use NeoLabel in academic work, please cite it — see
+[CITATION.cff](./CITATION.cff) (the "Cite this repository" button on
+the GitHub page picks it up automatically).
 
 ## Author
 

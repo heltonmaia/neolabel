@@ -6,7 +6,7 @@ docker-compose.prod.yml) so you can watch logs, restart, redeploy,
 and sanity-check the app without memorizing the full compose flags.
 
 Run on the VPS:
-    python3 monitor-prod.py
+    python3 scripts/monitor-prod.py
 """
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parent.parent
 PROJECT = "neo-label-prod"
 ENV_FILE = ".env.prod"
 COMPOSE_FILE = "docker-compose.prod.yml"
