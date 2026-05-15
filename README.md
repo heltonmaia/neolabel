@@ -155,6 +155,7 @@ For BibTeX, copy the block below:
   author  = {Maia, Helton},
   title   = {{NeoLabel}: Video-based pose annotation for research},
   year    = {2026},
+  version = {0.1.0},
   url     = {https://github.com/neolabel/app},
   license = {Apache-2.0}
 }
