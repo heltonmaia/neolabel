@@ -166,7 +166,7 @@ For BibTeX, copy the block below:
 **[Apache License 2.0](./LICENSE)** — permissive open-source license,
 allows both commercial and non-commercial use, with attribution.
 
-Copyright (c) 2026 Helton Maia — <https://heltonmaia.com>
+Copyright (c) 2026 The NeoLabel authors
 
 When redistributing: keep `LICENSE` and `NOTICE`, preserve copyright /
 patent / trademark / attribution notices, and mark any modified files
