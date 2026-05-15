@@ -152,7 +152,7 @@ For BibTeX, copy the block below:
 
 ```bibtex
 @software{maia_neolabel_2026,
-  author  = {Maia, Helton},
+  author  = {Maia, Helton and Tavares Filho, Marcos Aur{\'e}lio},
   title   = {{NeoLabel}: Video-based pose annotation for research},
   year    = {2026},
   version = {0.1.0},
@@ -173,7 +173,8 @@ patent / trademark / attribution notices, and mark any modified files
 as changed. Full terms:
 [apache.org/licenses/LICENSE-2.0](https://www.apache.org/licenses/LICENSE-2.0).
 
-## Author
+## Authors
 
-**Helton Maia** — <helton.maia@ufrn.br> —
-[heltonmaia.com](https://heltonmaia.com)
+- **Helton Maia** — <helton.maia@ufrn.br> —
+  [heltonmaia.com](https://heltonmaia.com)
+- **Marcos Aurélio Tavares Filho**
