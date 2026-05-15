@@ -145,9 +145,20 @@ copying that folder.
 
 ## Cite
 
-If you use NeoLabel in academic work, please cite it — see
-[CITATION.cff](./CITATION.cff). GitHub reads this file and exposes a
-"Cite this repository" button on the project page automatically.
+If you use NeoLabel in academic work, please cite it. The "Cite this
+repository" button on the GitHub page reads
+[CITATION.cff](./CITATION.cff) and also offers an APA-style entry.
+For BibTeX, copy the block below:
+
+```bibtex
+@software{maia_neolabel_2026,
+  author  = {Maia, Helton},
+  title   = {{NeoLabel}: Video-based pose annotation for research},
+  year    = {2026},
+  url     = {https://github.com/heltonmaia/neolabel},
+  license = {Apache-2.0}
+}
+```
 
 ## License
 
