@@ -13,6 +13,7 @@ authors:
   - given-names: Marcos Aurélio
     family-names: Tavares
     name-suffix: Filho
+    affiliation: Universidade Federal do Rio Grande do Norte
 url: "https://github.com/neolabel/app"
 repository-code: "https://github.com/neolabel/app"
 license: Apache-2.0
