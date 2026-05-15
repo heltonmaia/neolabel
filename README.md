@@ -1,234 +1,167 @@
 # NeoLabel
 
-Software for video-based pose annotation — build Machine Learning datasets
-for pose estimation and behavioral analysis. The primary use case is
-**infant pose annotation**, and the same workflow applies to **rodent
-behavior experiments** such as **Open Field (OF)** and **Elevated Plus
-Maze (EPM)**. Create projects, upload videos, annotate frames with
-keyboard shortcuts, and export the result.
+**Video-based pose annotation, built for research.**
+
+Label video frames, assign work to annotators, and export ready-to-train
+datasets. Two keypoint schemas ship by default: **17-point infant pose
+(COCO)** and **7-point rodent pose** for behavioral assays such as
+**Open Field (OF)** and **Elevated Plus Maze (EPM)**.
 
 <p align="center">
-  <img src="docs/screenshots/login.png" alt="NeoLabel sign-in screen" width="760">
+  <img src="docs/screenshots/login.png" alt="NeoLabel sign-in screen showing the project tagline and the two default keypoint schemas (Infant 17-pt and Rodent 7-pt)" width="820">
   <br>
-  <sub><em>NeoLabel sign-in — entry point to projects, videos, and annotation.</em></sub>
+  <sub><em>Sign-in screen — the two default schemas and the supported workflow are surfaced right at the entry point.</em></sub>
 </p>
 
-> The full specification — domain model, API reference, and roadmap —
-> lives in **[SPEC.md](./SPEC.md)**.
+> Full specification (domain model, API reference, roadmap) lives in
+> **[SPEC.md](./SPEC.md)**.
 
-## Features
+## What you can do
 
-- **Authentication** by username/password (JWT) with roles (`admin`,
-  `annotator`, `reviewer`). Destructive bulk operations (delete project,
-  delete all annotated items) are admin-only.
-- **Projects** with types:
-  - **Pose detection** — keypoint annotation on video frames with
-    FFmpeg-based extraction. Two schemas in use today:
-    - **Infant pose** — 17 COCO keypoints with an interactive baby
-      avatar as a visual guide.
-    - **Rodent pose** — 7 keypoints (`N` nose, `LEar`/`REar`, `BC`
-      body center, `TB`/`TM`/`TT` tail base/middle/tip) for behavioral
-      assays such as **Open Field (OF)** and **Elevated Plus Maze
-      (EPM)**.
+NeoLabel covers the path from raw video to a trainable dataset in four
+steps:
 
-    New schemas can be defined as the need arises.
-  - **Image segmentation** (roadmap).
+1. **Upload videos** at a chosen FPS — FFmpeg extracts the frames.
+   Optionally resize to **640×640** (letterbox or stretch). Optionally
+   **import an existing COCO keypoints dataset** to start from
+   pre-annotated items.
+2. **Assign work** — admins assign whole videos to a specific annotator
+   or leave them in the admin pool. Per-user visibility is enforced;
+   annotators only see what's assigned to them.
+3. **Annotate** with mouse or full-keyboard workflow; auto-save on every
+   action; undo history of 50 steps.
+4. **Export** as JSON / JSONL / CSV, YOLO-pose ZIP
+   (Ultralytics-ready, COCO 17 keypoints), or a full-bundle ZIP that
+   includes every referenced frame for portability.
 
 <p align="center">
-  <img src="docs/schemas/rodent-pose.svg" alt="Rodent pose — 7 keypoints (N, LEar, REar, BC, TB, TM, TT)" width="300">
+  <img src="docs/screenshots/video-upload.png" alt="Admin view of a project showing the Upload video form (FPS slider, assignee dropdown, resize policy), and collapsed sections for COCO import, Videos, and Items" width="820">
+  <br>
+  <sub><em>Admin view of a project — upload videos, choose extraction FPS and resize policy, optionally assign to a user. The same screen also lets admins import an existing COCO keypoints dataset (e.g. a Roboflow export) as pre-annotated items.</em></sub>
+</p>
+
+## What gets annotated
+
+Two ship-ready schemas, with room for new ones as needs arise:
+
+- **Infant pose** — 17 COCO keypoints, with an interactive baby avatar
+  on the right panel as a visual guide.
+- **Rodent pose** — 7 keypoints (`N` nose, `LEar` / `REar` ears, `BC`
+  body center, `TB` / `TM` / `TT` tail base / middle / tip), tailored
+  for behavioral assays.
+
+<p align="center">
+  <img src="docs/schemas/rodent-pose.svg" alt="Rodent pose — 7 keypoints (N, LEar, REar, BC, TB, TM, TT)" width="280">
   <br>
   <sub><em>Rodent keypoint schema currently in use.</em></sub>
 </p>
 
-- **Admin-only video upload** — optionally assigned to a specific
-  annotator, or left in the admin pool (extracted frames with no
-  assignee). Admins can reassign a whole video to another user, clear
-  the assignment, or delete it (removing frames and annotations).
-- **Per-user visibility** — annotators only see projects and items
-  assigned to them; admins see everything.
-- **Scale-ready project page**:
-  - Videos table with search, assignee filter, per-row progress bar and
-    totals.
-  - Items section with status tabs, per-video filter, list/grid view,
-    client-side pagination, and the assigned annotator shown on every
-    row (dashed/italic when unassigned).
-- **Annotation UI**:
-  - Mouse or full-keyboard workflow (arrows + Enter/Space).
-  - Shortcuts: `Tab`/`N` next keypoint, `1`–`9` jump, `O` occluded,
-    `X` out of frame (saved as COCO `v=0`), `U` undo, `[` / `]`
-    previous/next item.
-  - Undo history (50 steps), clear point / clear all.
-  - Auto-save on every action.
-  - **Traversal order** — choose top-to-bottom (default), left-contour,
-    or right-contour; clicking any point always overrides the pointer.
-    Output array order is unchanged across modes.
-  - **Reuse previous frame as template** — optional toggle that prefills
-    a new frame with the previous frame's keypoints so you only drag to
-    adjust. Safe to turn on/off mid-session.
-- **Export** in JSON, JSONL, CSV, **YOLO-pose ZIP** (Ultralytics-ready,
-  COCO 17 keypoints), and **Full bundle ZIP** (`annotations.json` +
-  every referenced source frame, portable across machines) for pose
-  projects. Text formats and the bundle include every item (pending
-  rows carry `annotation: null`); YOLO naturally only ships annotated
-  frames. Downloads are streamed with a progress bar and cancellable.
+## How annotation works
 
-## Stack
+Each extracted frame becomes an **item** you walk through with keyboard
+shortcuts. The right panel shows a live avatar of where you are in the
+schema, the chosen traversal order, and the action buttons.
 
-- **Backend:** Python 3.12, FastAPI, Pydantic v2, filesystem JSON storage
-  (no database), JWT + bcrypt, FFmpeg for videos.
-- **Frontend:** React 18 + TypeScript, Vite, TailwindCSS, TanStack Query,
-  Zustand, React Router, React Hook Form.
+<p align="center">
+  <img src="docs/screenshots/pose-annotate.png" alt="Pose annotation UI showing a sample infant frame with all 17 keypoints placed (numbered green dots) on the left, and the keypoint avatar plus action buttons on the right" width="820">
+  <br>
+  <sub><em>Pose annotation UI. <strong>The frame above is AI-generated for documentation purposes — not a real subject.</strong> Using synthetic frames in public materials is the recommended way to demo annotation tools that target sensitive populations (infants, patients), since you keep informed-consent obligations clean while still showing the product accurately.</em></sub>
+</p>
 
-## Setup
+Key interactions:
+
+- **Mouse or keyboard.** Arrows + Enter/Space to place a point;
+  clicking directly on the image always overrides the pointer.
+- **Shortcuts.** `Tab` / `N` next keypoint, `1`–`9` jump, `O` occluded,
+  `X` out of frame (saved as COCO `v=0`), `U` undo, `[` / `]` previous
+  / next item.
+- **Traversal order.** Top-to-bottom (default), left-contour, or
+  right-contour. Output array order is unchanged across modes — only
+  the pointer behavior changes.
+- **Reuse previous frame as template.** Optional toggle that prefills
+  a new frame with the previous frame's keypoints, so you only drag
+  to adjust. Safe to turn on/off mid-session.
+- **Auto-save** on every action; **undo history** of 50 steps;
+  per-point and clear-all reset.
+- **Review states.** Items move through `pending → in-progress →
+  reviewed`; reviewers can approve or send back.
+
+## Roles
+
+- **admin** — uploads videos, imports COCO datasets, assigns
+  annotators, deletes projects and items. Destructive bulk operations
+  are admin-only.
+- **annotator** — sees and works on items assigned to them.
+- **reviewer** — approves or sends back annotated items.
+
+## Export
+
+For pose projects:
+
+| Format            | Includes pending? | Best for                                                                 |
+| ----------------- | ----------------- | ------------------------------------------------------------------------ |
+| JSON / JSONL / CSV | Yes (pending rows carry `annotation: null`) | Inspection, scripting, custom pipelines                  |
+| YOLO-pose ZIP     | Annotated only   | Direct training with Ultralytics (COCO 17 keypoints)                     |
+| Full bundle ZIP   | All items + every referenced source frame | Portable archive across machines, reproducibility       |
+
+Downloads are streamed with a progress bar and are cancellable.
+
+## Run it
+
+The recommended path is **Docker** — bundles FFmpeg, pins Python/Node
+versions, and mounts source code for hot-reload.
 
 ```bash
 cp .env.example .env
 cp seed_users.example.json seed_users.json
 # edit seed_users.json with the credentials you want
+docker compose up --build -d
 ```
 
-`seed_users.json` is **git-ignored** and is read on every backend
-startup:
+Then open <http://localhost:5173>. The API and its OpenAPI docs are at
+<http://localhost:8000/docs>.
 
-- Users listed here are **created** if they don't exist yet.
-- If a listed user already exists, their **password and role are
-  reconciled** to match the file — so editing the password and
-  restarting the backend is the supported way to rotate credentials.
-- Users not listed in the file are left untouched. To prune users that
-  were removed from `seed_users.json`, run the reconciliation script:
+`seed_users.json` is read on every backend startup:
 
-  ```bash
-  # dry-run (prints what would change, touches nothing)
-  docker compose exec backend python -m scripts.reconcile_seed_users
-  # apply
-  docker compose exec backend python -m scripts.reconcile_seed_users --apply
-  ```
-
-  The script always preserves `admin`, unassigns any orphaned item
-  references, and lists projects whose `owner_id` would become orphaned
-  for manual review.
+- Listed users are **created** if they don't exist yet.
+- If a listed user already exists, **password and role are reconciled**
+  to match the file — so editing the password and restarting the
+  backend rotates credentials.
+- Users not listed are left untouched. To prune users that were
+  removed, use the reconciliation script (see SPEC).
 
 If you skip the file entirely, no users are created automatically — use
 the register screen.
 
-Format:
-
-```json
-[
-  { "username": "admin",      "password": "change-me", "role": "admin" },
-  { "username": "annotator1", "password": "change-me", "role": "annotator" }
-]
-```
-
-Accepted roles: `admin`, `annotator`, `reviewer`.
-
-## Running
-
-The recommended dev workflow is Docker — it bundles FFmpeg, pins the
-Python/Node versions, and mounts source code for hot-reload.
-
-### Docker (recommended)
-
-```bash
-docker compose up --build -d
-```
-
-Or use the interactive menu, which wraps the same commands:
-
-```bash
-python run-dev.py
-```
-
-Menu options: up (build + start), down, logs (follow), status, open UI,
-run backend tests.
-
-### Native
-
-Requires Python 3.12, Node 18+, and FFmpeg on `PATH`.
-
-```bash
-# Backend
-cd backend
-uvicorn app.main:app --reload
-
-# Frontend (separate terminal)
-cd frontend
-npm install
-npm run dev
-```
-
-URLs:
-
-- API / docs: <http://localhost:8000/docs>
-- UI: <http://localhost:5173>
-
-## Development workflow
-
-With the Docker dev stack, source code is bind-mounted into both
-containers:
-
-- **Backend** (`uvicorn --reload`): saving a `.py` reloads the app
-  automatically.
-- **Frontend** (Vite HMR): saving a `.tsx`/`.css` updates the browser
-  instantly.
-
-Rebuild (`docker compose up --build -d`) is only needed when
-`pyproject.toml`, `package.json`, a `Dockerfile`, or `docker-compose.yml`
-changes.
+For a native (non-Docker) setup, see [SPEC.md](./SPEC.md). Requires
+Python 3.12, Node 18+, and FFmpeg on `PATH`.
 
 ## Data
 
-All data lives under `./data/` (configurable via `DATA_DIR`). Each project
-is a subfolder with its config, items, annotations, uploaded videos, and
-extracted frames. No database — backup is just copying that folder.
+All runtime data lives under `./data/` (configurable via `DATA_DIR`).
+Each project is a subfolder with its config, items, annotations,
+uploaded videos, and extracted frames. **No database** — backup is just
+copying that folder.
 
-## Environment variables
+## Cite
 
-See `.env.example`. Main ones:
-
-- `DATA_DIR` — where data is stored (default `./data`).
-- `SECRET_KEY` — JWT signing key (change for production).
-- `FRONTEND_URL` — allowed CORS origin.
-- `BACKEND_PORT`, `VITE_API_URL` — dev ports/URLs.
-- `SEED_USERS_FILE` — path to the seed file (set automatically in
-  `docker-compose.yml`).
-
-## Tests
-
-```bash
-# inside the running backend container
-docker compose exec backend pytest
-
-# or, from the interactive menu
-python run-dev.py   # → "Run backend tests"
-```
-
-Each test runs against an isolated `DATA_DIR` via an autouse fixture, so
-the suite never touches local data.
+If you use NeoLabel in academic work, please cite it — see
+[CITATION.cff](./CITATION.cff). GitHub reads this file and exposes a
+"Cite this repository" button on the project page automatically.
 
 ## License
 
-**[Apache License 2.0](./LICENSE)** — permissive open-source license.
+**[Apache License 2.0](./LICENSE)** — permissive open-source license,
+allows both commercial and non-commercial use, with attribution.
 
 Copyright (c) 2026 Helton Maia — <https://heltonmaia.com>
 
-- **Permitted**: commercial and non-commercial use, modification,
-  distribution, sublicensing, and private use. Includes an explicit,
-  irrevocable patent grant from contributors (subject to the
-  retaliation clause if you sue for patent infringement).
-- **Required**: include a copy of the `LICENSE` and `NOTICE` files
-  in any redistribution; preserve copyright, patent, trademark, and
-  attribution notices; mark any modified files as changed.
-- **Not granted**: rights to the project's name, trademarks, or
-  logos beyond what is needed to describe the origin of the work.
-
-Full terms: [LICENSE](./LICENSE) ·
+When redistributing: keep `LICENSE` and `NOTICE`, preserve copyright /
+patent / trademark / attribution notices, and mark any modified files
+as changed. Full terms:
 [apache.org/licenses/LICENSE-2.0](https://www.apache.org/licenses/LICENSE-2.0).
-
-If you use NeoLabel in academic work, please cite it — see
-[CITATION.cff](./CITATION.cff) (the "Cite this repository" button on
-the GitHub page picks it up automatically).
 
 ## Author
 
-**Helton Maia** — <helton.maia@ufrn.br> — [heltonmaia.com](https://heltonmaia.com)
+**Helton Maia** — <helton.maia@ufrn.br> —
+[heltonmaia.com](https://heltonmaia.com)
