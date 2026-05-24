@@ -521,16 +521,6 @@ export default function PoseAnnotatePage() {
     }, 400);
   }
 
-  const item = itemQ.data;
-  const project = projectQ.data;
-  const payload = item?.payload as {
-    image_url?: string;
-    source_video?: string;
-    frame_index?: number;
-  };
-  const imageUrl = payload?.image_url;
-  const fullUrl = imageUrl ? `${FILES_BASE}${imageUrl}` : null;
-
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       const tag = (e.target as HTMLElement)?.tagName;
@@ -611,6 +601,16 @@ export default function PoseAnnotatePage() {
   // happen in the tick between URL change and query refetch settling),
   // show Loading rather than painting the wrong image with the new header.
   if (itemQ.data.id !== currentItemId) return <p className="p-6">Loading…</p>;
+
+  const item = itemQ.data;
+  const project = projectQ.data;
+  const payload = item.payload as {
+    image_url?: string;
+    source_video?: string;
+    frame_index?: number;
+  };
+  const imageUrl = payload.image_url;
+  const fullUrl = imageUrl ? `${FILES_BASE}${imageUrl}` : null;
 
   // A keypoint is "addressed" (counts toward completion) if it's been placed
   // OR explicitly marked out of frame.
