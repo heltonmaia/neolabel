@@ -11,7 +11,7 @@
 #   - /root/work/neo-label/.env.prod
 #
 # Install as nightly cron (run as root on the VPS):
-#   ( crontab -l 2>/dev/null; echo "0 3 * * * /root/work/neo-label/backup.sh >> /var/log/neo-label-backup.log 2>&1" ) | crontab -
+#   ( crontab -l 2>/dev/null; echo "0 3 * * * /root/work/neo-label/scripts/backup.sh >> /var/log/neo-label-backup.log 2>&1" ) | crontab -
 #
 # Restore:
 #   mkdir /tmp/restore && tar -xzf /root/neo-label-backups/neo-label-YYYYMMDD-HHMMSS.tar.gz -C /tmp/restore
