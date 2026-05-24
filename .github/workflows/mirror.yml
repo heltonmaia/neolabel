@@ -21,9 +21,16 @@ jobs:
         run: |
           git clone --mirror "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git" repo.git
 
-      - name: Push mirror to neolabel/app
+      - name: Push branches and tags to neolabel/app
         working-directory: repo.git
         env:
           MIRROR_PAT: ${{ secrets.MIRROR_PAT }}
         run: |
-          git push --mirror "https://x-access-token:${MIRROR_PAT}@github.com/neolabel/app.git"
+          # Mirror only branches and tags. Skip refs/pull/* and other
+          # GitHub-internal refs that the target repo always rejects
+          # ("deny updating a hidden ref"). --prune deletes refs on the
+          # target that no longer exist in source.
+          git push --prune --force \
+            "https://x-access-token:${MIRROR_PAT}@github.com/neolabel/app.git" \
+            "refs/heads/*:refs/heads/*" \
+            "refs/tags/*:refs/tags/*"
