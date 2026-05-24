@@ -525,6 +525,43 @@ export default function PoseAnnotatePage() {
     }, 400);
   }
 
+  const item = itemQ.data;
+  const project = projectQ.data;
+  const payload = item?.payload as {
+    image_url?: string;
+    source_video?: string;
+    frame_index?: number;
+  };
+  const imageUrl = payload?.image_url;
+  const fullUrl = imageUrl ? `${FILES_BASE}${imageUrl}` : null;
+
+  // Reallocates pose annotation keypoints according to zoom in or out
+  useEffect(() => {
+    const img = imgRef.current;
+    if (!img) return;
+
+    const update = () => {
+      setImgDims({
+        naturalW: img.naturalWidth,
+        naturalH: img.naturalHeight,
+        offsetL: img.offsetLeft,
+        offsetT: img.offsetTop,
+        clientW: img.clientWidth,
+        clientH: img.clientHeight,
+      });
+    };
+
+    img.addEventListener('load', update);
+    const observer = new ResizeObserver(update);
+    observer.observe(img);
+    update();
+
+    return () => {
+      img.removeEventListener('load', update);
+      observer.disconnect();
+    };
+  }, [fullUrl]); // re-registra quando muda o frame
+
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       const tag = (e.target as HTMLElement)?.tagName;
@@ -606,15 +643,6 @@ export default function PoseAnnotatePage() {
   // show Loading rather than painting the wrong image with the new header.
   if (itemQ.data.id !== currentItemId) return <p className="p-6">Loading…</p>;
 
-  const item = itemQ.data;
-  const project = projectQ.data;
-  const payload = item.payload as {
-    image_url?: string;
-    source_video?: string;
-    frame_index?: number;
-  };
-  const imageUrl = payload.image_url;
-  const fullUrl = imageUrl ? `${FILES_BASE}${imageUrl}` : null;
   // A keypoint is "addressed" (counts toward completion) if it's been placed
   // OR explicitly marked out of frame.
   const placedCount = Object.values(keypoints).filter((v) => v && v[2] > 0).length;
@@ -724,7 +752,7 @@ export default function PoseAnnotatePage() {
                     pointerEvents: 'none',
                   }}
                   viewBox={`0 0 ${imgDims.naturalW} ${imgDims.naturalH}`}
-                  preserveAspectRatio="none"
+                  preserveAspectRatio="xMidYMid meet"
                 >
                   {/* Skeleton lines (only between placed endpoints) */}
                   {bundle.skeleton.map(([a, b], i) => {
