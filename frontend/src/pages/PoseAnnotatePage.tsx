@@ -34,10 +34,6 @@ type KeypointsMap = Record<number, KeypointValue | null>;
 type ImgDims = {
   naturalW: number;
   naturalH: number;
-  offsetL: number;
-  offsetT: number;
-  clientW: number;
-  clientH: number;
 };
 
 type DragState =
@@ -535,33 +531,6 @@ export default function PoseAnnotatePage() {
   const imageUrl = payload?.image_url;
   const fullUrl = imageUrl ? `${FILES_BASE}${imageUrl}` : null;
 
-  // Reallocates pose annotation keypoints according to zoom in or out
-  useEffect(() => {
-    const img = imgRef.current;
-    if (!img) return;
-
-    const update = () => {
-      setImgDims({
-        naturalW: img.naturalWidth,
-        naturalH: img.naturalHeight,
-        offsetL: img.offsetLeft,
-        offsetT: img.offsetTop,
-        clientW: img.clientWidth,
-        clientH: img.clientHeight,
-      });
-    };
-
-    img.addEventListener('load', update);
-    const observer = new ResizeObserver(update);
-    observer.observe(img);
-    update();
-
-    return () => {
-      img.removeEventListener('load', update);
-      observer.disconnect();
-    };
-  }, [fullUrl]); // re-registra quando muda o frame
-
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       const tag = (e.target as HTMLElement)?.tagName;
@@ -717,7 +686,7 @@ export default function PoseAnnotatePage() {
           tabIndex={0}
         >
           {fullUrl ? (
-            <>
+            <div className="relative inline-block max-w-full max-h-[80vh]">
               <img
                 ref={imgRef}
                 key={item.id}
@@ -730,27 +699,16 @@ export default function PoseAnnotatePage() {
                   setImgDims({
                     naturalW: i.naturalWidth,
                     naturalH: i.naturalHeight,
-                    offsetL: i.offsetLeft,
-                    offsetT: i.offsetTop,
-                    clientW: i.clientWidth,
-                    clientH: i.clientHeight,
                   });
                 }}
-                className="max-w-full max-h-[80vh] cursor-crosshair select-none"
+                className="block max-w-full max-h-[80vh] cursor-crosshair select-none"
                 draggable={false}
                 alt="frame"
               />
               {/* Render skeleton + keypoints overlay */}
               {imgDims && (
                 <svg
-                  className="absolute"
-                  style={{
-                    left: imgDims.offsetL,
-                    top: imgDims.offsetT,
-                    width: imgDims.clientW,
-                    height: imgDims.clientH,
-                    pointerEvents: 'none',
-                  }}
+                  className="absolute inset-0 w-full h-full pointer-events-none"
                   viewBox={`0 0 ${imgDims.naturalW} ${imgDims.naturalH}`}
                   preserveAspectRatio="xMidYMid meet"
                 >
@@ -878,13 +836,15 @@ export default function PoseAnnotatePage() {
                 </svg>
               )}
               {/* Keyboard cursor crosshair */}
-              {keyboardMode && imgRef.current && (
+              {keyboardMode && (
                 <div
                   className="absolute pointer-events-none"
                   style={{
-                    left: imgRef.current.offsetLeft + cursor.x * imgRef.current.clientWidth - 10,
-                    top: imgRef.current.offsetTop + cursor.y * imgRef.current.clientHeight - 10,
-                    width: 20, height: 20,
+                    left: `${cursor.x * 100}%`,
+                    top: `${cursor.y * 100}%`,
+                    width: 20,
+                    height: 20,
+                    transform: 'translate(-50%, -50%)',
                   }}
                 >
                   <div className="w-full h-full border-2 border-yellow-400 rounded-full
@@ -894,7 +854,7 @@ export default function PoseAnnotatePage() {
                   </div>
                 </div>
               )}
-            </>
+            </div>
           ) : (
             <p className="text-slate-400">No image for this item.</p>
           )}
