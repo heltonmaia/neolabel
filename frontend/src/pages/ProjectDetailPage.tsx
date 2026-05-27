@@ -17,6 +17,7 @@ import {
   deleteItem,
   findOutliers,
   listAllItems,
+  type Item,
   type ItemStatus,
   type OutlierItem,
 } from '@/api/items';
@@ -228,14 +229,53 @@ export default function ProjectDetailPage() {
     },
   });
 
+  // Items cache shape matches listAllItems' return: { total, items }.
+  type ItemsCache = { total: number; items: Item[] };
+  const itemsKey = ['items', projectId];
+
+  // Optimistic delete: refetching the full items list after each mutation
+  // costs ~6 paginated requests × full-directory scan on the backend, which
+  // visibly stalls the UI for several seconds on big projects. Update the
+  // cache locally so the click feels instant, and invalidate in background
+  // (onSettled) so any drift gets reconciled.
   const removeItem = useMutation({
     mutationFn: (itemId: number) => deleteItem(itemId),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['items', projectId] }),
+    onMutate: async (itemId) => {
+      await qc.cancelQueries({ queryKey: itemsKey });
+      const prev = qc.getQueryData<ItemsCache>(itemsKey);
+      if (prev) {
+        qc.setQueryData<ItemsCache>(itemsKey, {
+          total: Math.max(0, prev.total - 1),
+          items: prev.items.filter((i) => i.id !== itemId),
+        });
+      }
+      return { prev };
+    },
+    onError: (_e, _id, ctx) => {
+      if (ctx?.prev) qc.setQueryData(itemsKey, ctx.prev);
+    },
+    onSettled: () => qc.invalidateQueries({ queryKey: itemsKey }),
   });
 
   const clearItemAnnotation = useMutation({
     mutationFn: (itemId: number) => clearAnnotation(itemId),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['items', projectId] }),
+    onMutate: async (itemId) => {
+      await qc.cancelQueries({ queryKey: itemsKey });
+      const prev = qc.getQueryData<ItemsCache>(itemsKey);
+      if (prev) {
+        qc.setQueryData<ItemsCache>(itemsKey, {
+          total: prev.total,
+          items: prev.items.map((i) =>
+            i.id === itemId ? { ...i, status: 'pending', review_note: null } : i,
+          ),
+        });
+      }
+      return { prev };
+    },
+    onError: (_e, _id, ctx) => {
+      if (ctx?.prev) qc.setQueryData(itemsKey, ctx.prev);
+    },
+    onSettled: () => qc.invalidateQueries({ queryKey: itemsKey }),
   });
 
   const removeAnnotated = useMutation({
