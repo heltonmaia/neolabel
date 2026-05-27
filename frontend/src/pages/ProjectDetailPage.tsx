@@ -133,6 +133,7 @@ export default function ProjectDetailPage() {
   // Admin-only (the user list endpoint is admin-only too).
   const [assigneeFilter, setAssigneeFilter] = useState<'' | number | 'unassigned'>('');
   const [itemView, setItemView] = useState<'list' | 'grid'>('list');
+  const [videoView, setVideoView] = useState<'list' | 'grid'>('list');
   const [itemsVisible, setItemsVisible] = useState(50);
 
   const addLabel = useMutation({
@@ -272,6 +273,24 @@ export default function ProjectDetailPage() {
 
   const items = itemsQ.data?.items ?? [];
   const isPose = projectQ.data?.type === 'pose_detection';
+
+  // For the videos grid view: pick the lowest-indexed frame of each video as
+  // the card thumbnail. The video summary doesn't carry a preview URL, so we
+  // derive it from items (every frame has its own image_url).
+  const videoThumbs = useMemo(() => {
+    const best = new Map<string, { idx: number; url: string }>();
+    for (const i of items) {
+      const sv = (i.payload as { source_video?: string }).source_video;
+      const fi = (i.payload as { frame_index?: number }).frame_index;
+      const url = (i.payload as { image_url?: string }).image_url;
+      if (!sv || !url || typeof fi !== 'number') continue;
+      const cur = best.get(sv);
+      if (!cur || fi < cur.idx) best.set(sv, { idx: fi, url });
+    }
+    const out: Record<string, string> = {};
+    best.forEach((v, k) => { out[k] = v.url; });
+    return out;
+  }, [items]);
 
   const statusCounts = useMemo(() => {
     const c: Record<ItemStatus | 'all' | 'needs_revision', number> = {
@@ -1187,9 +1206,161 @@ export default function ProjectDetailPage() {
                     </option>
                   ))}
                 </select>
+                <div className="inline-flex border rounded overflow-hidden text-xs">
+                  <button
+                    onClick={() => setVideoView('list')}
+                    className={`px-2 py-1 ${
+                      videoView === 'list' ? 'bg-slate-800 text-white' : 'bg-white text-slate-600'
+                    }`}
+                    title="List view"
+                  >
+                    List
+                  </button>
+                  <button
+                    onClick={() => setVideoView('grid')}
+                    className={`px-2 py-1 border-l ${
+                      videoView === 'grid' ? 'bg-slate-800 text-white' : 'bg-white text-slate-600'
+                    }`}
+                    title="Grid view"
+                  >
+                    Grid
+                  </button>
+                </div>
               </div>
           {filtered.length === 0 ? (
             <p className="text-sm text-slate-500 py-2">No videos match.</p>
+          ) : videoView === 'grid' ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+            {filtered.map((v) => {
+              const thumb = videoThumbs[v.source_video];
+              const pendingApproval = v.done - v.reviewed;
+              const inFlight = approvingVideo === v.source_video;
+              const pct = v.frames > 0 ? Math.round((v.done / v.frames) * 100) : 0;
+              return (
+                <div
+                  key={v.source_video}
+                  className="border rounded overflow-hidden bg-white flex flex-col"
+                >
+                  <div className="relative">
+                    {thumb ? (
+                      <img
+                        src={`${FILES_BASE}${thumb}`}
+                        className="w-full aspect-video object-cover bg-slate-100"
+                        alt=""
+                        loading="lazy"
+                      />
+                    ) : (
+                      <div className="w-full aspect-video bg-slate-100 flex items-center justify-center text-xs text-slate-400">
+                        no preview
+                      </div>
+                    )}
+                    <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent text-white text-xs px-2 py-1">
+                      <div className="font-mono truncate" title={v.source_video}>
+                        {v.source_video}
+                      </div>
+                      <div className="text-[10px] text-white/80 tabular-nums">
+                        {v.frames} frames · {v.done}/{v.frames} done
+                        {v.frames > 0 && ` · ${pct}%`}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="px-2 pt-2">
+                    <div className="h-2 bg-slate-100 rounded overflow-hidden flex">
+                      <div
+                        className="h-full bg-blue-500"
+                        style={{ width: `${v.frames > 0 ? (v.reviewed / v.frames) * 100 : 0}%` }}
+                        title={`${v.reviewed} reviewed`}
+                      />
+                      <div
+                        className="h-full bg-emerald-500"
+                        style={{ width: `${v.frames > 0 ? ((v.done - v.reviewed) / v.frames) * 100 : 0}%` }}
+                        title={`${v.done - v.reviewed} done, awaiting review`}
+                      />
+                    </div>
+                  </div>
+                  <div className="px-2 py-2 flex items-center gap-1">
+                    <select
+                      value={v.assigned_to ?? ''}
+                      onChange={(e) => {
+                        const raw = e.target.value;
+                        const assigneeId = raw === '' ? null : Number(raw);
+                        reassign.mutate({ source: v.source_video, assigneeId });
+                      }}
+                      className="border rounded px-2 py-1 text-xs flex-1 min-w-0"
+                    >
+                      <option value="">— unassigned —</option>
+                      {(usersQ.data ?? []).map((u) => (
+                        <option key={u.id} value={u.id}>
+                          {u.username}
+                        </option>
+                      ))}
+                    </select>
+                    {pendingApproval > 0 && (
+                      <button
+                        onClick={() =>
+                          confirmDialog.ask({
+                            title: 'Approve all done frames?',
+                            message: `Mark all ${pendingApproval} done frames in "${v.source_video}" as reviewed. Frames already reviewed are skipped.`,
+                            confirmLabel: 'Approve all',
+                            onConfirm: () => approveAllMut.mutate(v.source_video),
+                          })
+                        }
+                        disabled={inFlight}
+                        className="text-emerald-600 hover:text-emerald-800 p-1 disabled:opacity-40"
+                        title={`Approve all ${pendingApproval} done frames as reviewed`}
+                        aria-label="Approve all done frames in this video"
+                      >
+                        {inFlight ? (
+                          <svg className="animate-spin" width="16" height="16" viewBox="0 0 24 24" fill="none">
+                            <circle cx="12" cy="12" r="10" stroke="currentColor" strokeOpacity="0.25" strokeWidth="4" />
+                            <path d="M12 2a10 10 0 0 1 10 10" stroke="currentColor" strokeWidth="4" strokeLinecap="round" />
+                          </svg>
+                        ) : (
+                          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <polyline points="20 6 9 17 4 12" />
+                          </svg>
+                        )}
+                      </button>
+                    )}
+                    <button
+                      onClick={() =>
+                        confirmDialog.ask({
+                          title: 'Delete video?',
+                          message: `"${v.source_video}" and all ${v.frames} extracted frames (plus their annotations) will be removed. This cannot be undone.`,
+                          confirmLabel: 'Delete video',
+                          tone: 'danger',
+                          requireTypedConfirmation: v.source_video,
+                          onConfirm: () => removeVideo.mutate(v.source_video),
+                        })
+                      }
+                      disabled={removeVideo.isPending}
+                      className="text-slate-400 hover:text-red-600 p-1 disabled:opacity-40"
+                      title="Delete video and all its frames"
+                      aria-label="Delete video"
+                    >
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        width="16"
+                        height="16"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <path d="M3 6h18" />
+                        <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
+                        <path d="M10 11v6" />
+                        <path d="M14 11v6" />
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
           ) : (
           <div className="overflow-x-auto">
           <table className="w-full text-sm">
@@ -1570,6 +1741,84 @@ export default function ProjectDetailPage() {
                         </div>
                       );
                     })()}
+                  </div>
+                  {/* Mirror of the list-view actions (clear annotation /
+                      delete item) — hidden until hover so the card stays
+                      clean. Buttons sit inside the wrapping Link, so each
+                      handler must preventDefault + stopPropagation to avoid
+                      navigating to the annotator. */}
+                  <div className="absolute top-1 left-1 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    {(i.status === 'done' ||
+                      i.status === 'in_progress' ||
+                      i.status === 'reviewed') && (
+                      <button
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          confirmDialog.ask({
+                            title: 'Clear annotation?',
+                            message: `The annotation on item ${i.id} will be removed, but the item itself is kept so it can be re-annotated.`,
+                            confirmLabel: 'Clear annotation',
+                            tone: 'danger',
+                            onConfirm: () => clearItemAnnotation.mutate(i.id),
+                          });
+                        }}
+                        className="bg-white/90 text-slate-600 hover:text-amber-600 hover:bg-white rounded p-1 shadow"
+                        title="Clear annotation (keep item)"
+                        aria-label="Clear annotation"
+                      >
+                        <svg
+                          xmlns="http://www.w3.org/2000/svg"
+                          width="14"
+                          height="14"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        >
+                          <path d="M20 20H9L3 14a2 2 0 0 1 0-2.8l8.5-8.5a2 2 0 0 1 2.8 0l6 6a2 2 0 0 1 0 2.8L13 20" />
+                          <path d="M18 13 9 22" />
+                        </svg>
+                      </button>
+                    )}
+                    {isAdmin && (
+                      <button
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          confirmDialog.ask({
+                            title: 'Delete item?',
+                            message: `Item ${i.id} and any annotation on it will be permanently removed. This cannot be undone.`,
+                            confirmLabel: 'Delete item',
+                            tone: 'danger',
+                            onConfirm: () => removeItem.mutate(i.id),
+                          });
+                        }}
+                        className="bg-white/90 text-slate-600 hover:text-red-600 hover:bg-white rounded p-1 shadow"
+                        title="Delete this item"
+                        aria-label="Delete item"
+                      >
+                        <svg
+                          xmlns="http://www.w3.org/2000/svg"
+                          width="14"
+                          height="14"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        >
+                          <path d="M3 6h18" />
+                          <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                          <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
+                          <path d="M10 11v6" />
+                          <path d="M14 11v6" />
+                        </svg>
+                      </button>
+                    )}
                   </div>
                   {/* Stacked badges: annotation state on top, review state
                       (when applicable) just below — same two-axis idea as the
