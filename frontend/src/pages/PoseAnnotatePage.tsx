@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { me } from '@/api/auth';
 import { getProject } from '@/api/projects';
-import { getItem, listAllItems, reviewItem, saveAnnotation } from '@/api/items';
+import { deleteItem, getItem, listAllItems, reviewItem, saveAnnotation, type Item } from '@/api/items';
 import { FILES_BASE } from '@/lib/env';
 import BabyAvatar from '@/components/BabyAvatar';
 import RodentAvatar from '@/components/RodentAvatar';
@@ -235,6 +235,57 @@ export default function PoseAnnotatePage() {
   const canReview = !!meQ.data && !!projectQ.data && (
     meQ.data.role === 'admin' || meQ.data.id === projectQ.data.owner_id
   );
+  const isAdmin = meQ.data?.role === 'admin';
+
+  // Optimistic item-delete from the annotator view: matches the cache shape
+  // ProjectDetailPage uses, so its cards refresh immediately when we return.
+  // After delete, jump to the next item in the cohort (or previous, or back
+  // to the project page) so an admin cleaning bad images stays in flow.
+  type ItemsCache = { total: number; items: Item[] };
+  const removeItem = useMutation({
+    mutationFn: (id: number) => deleteItem(id),
+    onMutate: async (id) => {
+      const key = ['items', projectId];
+      await qc.cancelQueries({ queryKey: key });
+      const prev = qc.getQueryData<ItemsCache>(key);
+      if (prev) {
+        qc.setQueryData<ItemsCache>(key, {
+          total: Math.max(0, prev.total - 1),
+          items: prev.items.filter((i) => i.id !== id),
+        });
+      }
+      return { prev };
+    },
+    onError: (_e, _id, ctx) => {
+      if (ctx?.prev) qc.setQueryData(['items', projectId], ctx.prev);
+    },
+    onSettled: () => qc.invalidateQueries({ queryKey: ['items', projectId] }),
+  });
+  function handleDeleteItem() {
+    const ix = cohort.findIndex((i) => i.id === currentItemId);
+    const nextTargetId =
+      ix >= 0 && ix < cohort.length - 1
+        ? cohort[ix + 1].id
+        : ix > 0
+          ? cohort[ix - 1].id
+          : null;
+    confirm.ask({
+      title: 'Delete image?',
+      message: `Item #${currentItemId} and any annotation on it will be permanently removed. This cannot be undone.`,
+      confirmLabel: 'Delete image',
+      tone: 'danger',
+      onConfirm: () =>
+        removeItem.mutate(currentItemId, {
+          onSuccess: () => {
+            if (nextTargetId !== null) {
+              navigate(`/projects/${projectId}/annotate/${nextTargetId}`);
+            } else {
+              navigate(`/projects/${projectId}`);
+            }
+          },
+        }),
+    });
+  }
   const [showSendBack, setShowSendBack] = useState(false);
   const [reviewNoteInput, setReviewNoteInput] = useState('');
   const reviewMut = useMutation({
@@ -641,6 +692,25 @@ export default function PoseAnnotatePage() {
           </div>
         </div>
         <div className="flex items-center gap-3 text-sm text-slate-500">
+          {isAdmin && (
+            <button
+              type="button"
+              onClick={handleDeleteItem}
+              disabled={removeItem.isPending}
+              className="inline-flex items-center gap-1.5 px-2 py-1 rounded-full text-xs font-medium border border-red-200 bg-white text-red-600 hover:bg-red-50 hover:border-red-300 transition-colors disabled:opacity-50"
+              title="Delete this image and its annotation"
+              aria-label="Delete image"
+            >
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M3 6h18" />
+                <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
+                <path d="M10 11v6" />
+                <path d="M14 11v6" />
+              </svg>
+              Delete image
+            </button>
+          )}
           {canReview && (
             <button
               type="button"
