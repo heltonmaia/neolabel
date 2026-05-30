@@ -124,6 +124,9 @@ export async function deleteAnnotatedItems(projectId: number) {
   return data;
 }
 
-export function exportUrl(projectId: number, format: 'json' | 'jsonl' | 'csv') {
+export function exportUrl(
+  projectId: number,
+  format: 'json' | 'jsonl' | 'csv' | 'yolo' | 'bundle' | 'yolo_split',
+) {
   return `/projects/${projectId}/export?format=${format}`;
 }

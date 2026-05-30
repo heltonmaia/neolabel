@@ -10,17 +10,22 @@ export interface DownloadProgress {
 export interface DownloadOptions {
   onProgress?: (p: DownloadProgress) => void;
   signal?: AbortSignal;
+  split?: { train: number; val: number; test: number; seed: number };
 }
 
-export type ExportFormat = 'json' | 'jsonl' | 'csv' | 'yolo' | 'bundle';
+export type ExportFormat = 'json' | 'jsonl' | 'csv' | 'yolo' | 'bundle' | 'yolo_split';
 
 export async function downloadExport(
   projectId: number,
   format: ExportFormat,
   opts?: DownloadOptions,
 ) {
+  const params: Record<string, string | number> =
+    format === 'yolo_split' && opts?.split
+      ? { format, ...opts.split }
+      : { format };
   const res = await api.get(`/projects/${projectId}/export`, {
-    params: { format },
+    params,
     responseType: 'blob',
     signal: opts?.signal,
     onDownloadProgress: (e) => {
@@ -35,9 +40,11 @@ export async function downloadExport(
   a.download =
     format === 'yolo'
       ? `project_${projectId}_yolo.zip`
-      : format === 'bundle'
-        ? `project_${projectId}_bundle.zip`
-        : `project_${projectId}.${format}`;
+      : format === 'yolo_split'
+        ? `project_${projectId}_yolo_split.zip`
+        : format === 'bundle'
+          ? `project_${projectId}_bundle.zip`
+          : `project_${projectId}.${format}`;
   a.click();
   URL.revokeObjectURL(url);
 }
