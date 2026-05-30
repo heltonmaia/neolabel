@@ -106,6 +106,7 @@ export default function ProjectDetailPage() {
   >(null);
   const [splitCfg, setSplitCfg] = useState({ train: 70, val: 20, test: 10, seed: 42 });
   const splitSum = splitCfg.train + splitCfg.val + splitCfg.test;
+  const [excludeOccluded, setExcludeOccluded] = useState(false);
   const exportAbortRef = useRef<AbortController | null>(null);
 
   async function handleExport() {
@@ -119,6 +120,8 @@ export default function ProjectDetailPage() {
         signal: controller.signal,
         onProgress: (p) => setExportProgress({ format: fmt, loaded: p.loaded, total: p.total }),
         split: fmt === 'yolo_split' ? splitCfg : undefined,
+        excludeOccluded:
+          fmt === 'yolo' || fmt === 'yolo_split' ? excludeOccluded : undefined,
       });
     } catch (err) {
       if (!axios.isCancel(err)) {
@@ -567,6 +570,26 @@ export default function ProjectDetailPage() {
                     Sum: {splitSum}% {splitSum === 100 ? '' : '(must be 100)'}
                   </p>
                 </div>
+              )}
+              {(exportFormat === 'yolo' || exportFormat === 'yolo_split') && (
+                <label
+                  className={`flex items-start gap-2 text-xs text-slate-600 cursor-pointer ${
+                    exportFormat === 'yolo_split' ? 'mt-1' : 'border-t pt-2 mt-1'
+                  }`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={excludeOccluded}
+                    onChange={(e) => setExcludeOccluded(e.target.checked)}
+                    className="mt-0.5"
+                  />
+                  <span>
+                    Excluir keypoints ocluídos (v=1) do treino
+                    <span className="block text-slate-400">
+                      vira 0 0 0; segue contando para a bounding box
+                    </span>
+                  </span>
+                </label>
               )}
               <button
                 onClick={handleExport}
