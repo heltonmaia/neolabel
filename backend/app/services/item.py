@@ -557,13 +557,18 @@ def _yolo_schema_meta(project: dict) -> tuple[int, list[int], str, str]:
     )
 
 
-def _yolo_records(project_id: int, num_kpts: int) -> Iterator[tuple[Path, str, str]]:
+def _yolo_records(
+    project_id: int, num_kpts: int, exclude_occluded: bool = False
+) -> Iterator[tuple[Path, str, str]]:
     """Yield (src_path, stem, label_line) for every export-eligible item.
 
     Eligibility (all must hold): has an annotation, keypoint count matches the
     project schema, `image_url` is under `/files/`, the source frame exists on
     disk, its JPEG dims are readable, and at least one keypoint is visible.
     The label line is the normalized YOLO-pose row `0 cx cy w h x1 y1 v1 ...`.
+    When `exclude_occluded` is set, occluded keypoints (v=1) are written as
+    `0 0 0` (demoted to v=0) so they carry no keypoint supervision; the bbox
+    still uses them.
     """
     items = storage.list_items(project_id)
     anns = {a["item_id"]: a for a in storage.list_annotations_for_project(project_id)}
@@ -606,13 +611,20 @@ def _yolo_records(project_id: int, num_kpts: int) -> Iterator[tuple[Path, str, s
         bw = (x1 - x0) / w
         bh = (y1 - y0) / h
 
-        kp_str = " ".join(f"{x / w:.6f} {y / h:.6f} {int(v)}" for x, y, v in kps)
+        kp_str = " ".join(
+            "0.000000 0.000000 0"
+            if (exclude_occluded and v == 1)
+            else f"{x / w:.6f} {y / h:.6f} {int(v)}"
+            for x, y, v in kps
+        )
         label_line = f"0 {cx:.6f} {cy:.6f} {bw:.6f} {bh:.6f} {kp_str}\n"
         stem = f"{item['id']:06d}_{src.stem}"
         yield src, stem, label_line
 
 
-def build_yolo_export(project_id: int) -> tuple[BinaryIO, int]:
+def build_yolo_export(
+    project_id: int, exclude_occluded: bool = False
+) -> tuple[BinaryIO, int]:
     """Build a flat YOLO-pose dataset ZIP (Ultralytics format).
 
     Everything lands in images/train + labels/train; data.yaml points both
@@ -641,17 +653,25 @@ def build_yolo_export(project_id: int) -> tuple[BinaryIO, int]:
         )
 
         exported = 0
-        for src, stem, label_line in _yolo_records(project_id, num_kpts):
+        for src, stem, label_line in _yolo_records(
+            project_id, num_kpts, exclude_occluded
+        ):
             zf.write(src, f"images/train/{stem}{src.suffix}")
             zf.writestr(f"labels/train/{stem}.txt", label_line)
             exported += 1
 
+        occ_note = (
+            "Occluded keypoints (v=1): excluded from training\n"
+            if exclude_occluded
+            else ""
+        )
         zf.writestr(
             "README.txt",
             f"NeoLabel YOLO-pose export\n"
             f"Project: {project_id}\n"
             f"Exported: {exported} annotated frames\n"
             f"Format: Ultralytics YOLO-pose, {schema_label}\n"
+            f"{occ_note}"
             f"Train with e.g.:\n"
             f"  yolo pose train data=data.yaml model=yolo11n-pose.pt epochs=100\n"
             f"(same yaml works for YOLOv8/v11/v12/v26 pose.)\n",
@@ -663,7 +683,8 @@ def build_yolo_export(project_id: int) -> tuple[BinaryIO, int]:
 
 
 def build_yolo_split_export(
-    project_id: int, train: int, val: int, test: int, seed: int
+    project_id: int, train: int, val: int, test: int, seed: int,
+    exclude_occluded: bool = False,
 ) -> tuple[BinaryIO, int]:
     """Build a YOLO-pose dataset ZIP split into train/val/test (Ultralytics).
 
@@ -681,7 +702,7 @@ def build_yolo_split_export(
     project = storage.load_project(project_id) or {}
     num_kpts, flip_idx, class_name, schema_label = _yolo_schema_meta(project)
 
-    records = list(_yolo_records(project_id, num_kpts))
+    records = list(_yolo_records(project_id, num_kpts, exclude_occluded))
     random.Random(seed).shuffle(records)
     n = len(records)
     n_train = n * train // 100
@@ -726,6 +747,11 @@ def build_yolo_split_export(
                 zf.writestr(f"labels/{split_name}/{stem}.txt", label_line)
 
         count_str = ", ".join(f"{k}={v}" for k, v in counts.items())
+        occ_note = (
+            "Occluded keypoints (v=1): excluded from training\n"
+            if exclude_occluded
+            else ""
+        )
         zf.writestr(
             "README.txt",
             f"NeoLabel YOLO-pose split export\n"
@@ -733,6 +759,7 @@ def build_yolo_split_export(
             f"Format: Ultralytics YOLO-pose, {schema_label}\n"
             f"Split: train={train}% val={val}% test={test}% (seed={seed})\n"
             f"Frames per split: {count_str}\n"
+            f"{occ_note}"
             f"Train with e.g.:\n"
             f"  yolo pose train data=data.yaml model=yolo11n-pose.pt epochs=100\n"
             f"(same yaml works for YOLOv8/v11/v12/v26 pose.)\n",

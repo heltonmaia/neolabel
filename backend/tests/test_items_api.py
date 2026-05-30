@@ -653,3 +653,102 @@ def test_export_yolo_split_rejects_bad_ratio_sum(client, auth_headers, project):
         headers=auth_headers,
     )
     assert r.status_code == 422
+
+
+def _seed_one_mixed_pose_item(client, auth_headers, project, tmp_path):
+    """One annotated item: 16 visible (v=2) kps + 1 occluded (v=1) at a
+    far corner so the bbox provably depends on the occluded point.
+    Returns the parsed-out occluded keypoint index (16)."""
+    rel = f"projects/{project['id']}/frames/vid/f_000000.jpg"
+    img_path = tmp_path / rel
+    img_path.parent.mkdir(parents=True, exist_ok=True)
+    img_path.write_bytes(_tiny_jpeg(640, 480))
+    client.post(
+        f"/api/v1/projects/{project['id']}/items/bulk",
+        json={"items": [{"payload": {"image_url": f"/files/{rel}"}}]},
+        headers=auth_headers,
+    )
+    iid = client.get(
+        f"/api/v1/projects/{project['id']}/items", headers=auth_headers
+    ).json()["items"][0]["id"]
+    kps = [[50 + i * 5, 60 + i * 5, 2] for i in range(16)] + [[600, 470, 1]]
+    client.put(
+        f"/api/v1/items/{iid}/annotation",
+        json={"value": {"keypoints": kps}},
+        headers=auth_headers,
+    )
+    return 16  # the occluded keypoint's index in the 17-kp array
+
+
+def _yolo_label_fields(stream):
+    """Read the single labels/train/*.txt from a built YOLO zip → list[str]."""
+    import io
+    import zipfile
+
+    try:
+        zf = zipfile.ZipFile(io.BytesIO(stream.read()))
+    finally:
+        stream.close()
+    name = next(n for n in zf.namelist() if n.startswith("labels/train/"))
+    return zf.read(name).decode().strip().split()
+
+
+def test_yolo_export_demotes_occluded_keeps_bbox(client, auth_headers, project, tmp_path):
+    from app.services import item as item_service
+
+    occ = _seed_one_mixed_pose_item(client, auth_headers, project, tmp_path)
+
+    plain, _ = item_service.build_yolo_export(project["id"])
+    plain_fields = _yolo_label_fields(plain)
+
+    excl_stream, _ = item_service.build_yolo_export(project["id"], exclude_occluded=True)
+    excl_fields = _yolo_label_fields(excl_stream)
+
+    # Field layout: [class, cx, cy, w, h, then 17 triplets x,y,v].
+    assert len(plain_fields) == 1 + 4 + 17 * 3
+    base = 5 + occ * 3  # start of the occluded keypoint's triplet
+
+    # Without the flag: occluded kp has its real coords and visibility 1.
+    assert plain_fields[base + 2] == "1"
+    assert plain_fields[base] != "0.000000"
+
+    # With the flag: occluded kp is zeroed and visibility 0.
+    assert excl_fields[base] == "0.000000"
+    assert excl_fields[base + 1] == "0.000000"
+    assert excl_fields[base + 2] == "0"
+
+    # Bbox (fields 1..4) is IDENTICAL — occluded point still drives the box.
+    assert plain_fields[1:5] == excl_fields[1:5]
+
+
+def test_yolo_split_export_honors_exclude_occluded(client, auth_headers, project, tmp_path):
+    import io
+    import zipfile
+
+    from app.services import item as item_service
+
+    _seed_one_mixed_pose_item(client, auth_headers, project, tmp_path)
+
+    stream, _ = item_service.build_yolo_split_export(
+        project["id"], train=100, val=0, test=0, seed=42, exclude_occluded=True
+    )
+    try:
+        zf = zipfile.ZipFile(io.BytesIO(stream.read()))
+    finally:
+        stream.close()
+    label_name = next(n for n in zf.namelist() if n.startswith("labels/"))
+    fields = zf.read(label_name).decode().strip().split()
+    # No keypoint triplet may carry visibility "1" once occluded are excluded.
+    # fields: [class, cx, cy, bw, bh, x0, y0, v0, x1, y1, v1, ...] — visibility
+    # columns start at index 7 (= 1 class + 4 bbox + 2 coords), then every 3rd.
+    visibilities = fields[7::3]
+    assert "1" not in visibilities
+
+
+def test_yolo_export_default_keeps_occluded(client, auth_headers, project, tmp_path):
+    from app.services import item as item_service
+
+    occ = _seed_one_mixed_pose_item(client, auth_headers, project, tmp_path)
+    fields = _yolo_label_fields(item_service.build_yolo_export(project["id"])[0])
+    # Default (no flag) still emits the occluded keypoint with visibility 1.
+    assert fields[5 + occ * 3 + 2] == "1"
