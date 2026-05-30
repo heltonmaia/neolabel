@@ -181,7 +181,7 @@ user does not own returns **404** (to avoid leaking existence), with
 - `DELETE /items/{id}/annotation` — clear annotation, keep item
 - `DELETE /items/{id}` — admin/owner only
 - `POST   /projects/{id}/items/delete-annotated` — admin-only bulk
-- `GET    /projects/{id}/export?format=json|jsonl|csv|yolo|bundle` —
+- `GET    /projects/{id}/export?format=json|jsonl|csv|yolo|bundle|yolo_split` —
   streams the export. Text formats (`json`, `jsonl`, `csv`) and
   `bundle` always include every item (pending rows carry
   `annotation: null`) — filtering is downstream. `yolo` always
@@ -189,6 +189,15 @@ user does not own returns **404** (to avoid leaking existence), with
   returns a self-contained ZIP: `annotations.json` (array of rows,
   `payload.image_url` rewritten to archive-relative paths) plus an
   `images/` folder with every referenced frame.
+- `yolo_split` — same Ultralytics YOLO-pose dataset as `yolo`, but
+  partitioned into `images/{train,val,test}` + `labels/{train,val,test}`
+  from a seeded random shuffle. Extra query params: `train`, `val`,
+  `test` (integer percentages, each 0–100, **must sum to 100** or the
+  endpoint returns **422**; default 70/20/10) and `seed` (integer,
+  default 42). A given seed + the same eligible frames always yields
+  the same split. When `test=0`, the test folders and the `test:` key
+  in `data.yaml` are omitted and `val` absorbs the rounding remainder
+  (no frame is dropped). Annotated-only, like `yolo`.
 
 ### Videos (pose projects)
 - `POST   /projects/{id}/videos` — admin-only; form(`file`, `fps`,
