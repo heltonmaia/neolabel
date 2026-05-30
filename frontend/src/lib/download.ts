@@ -11,6 +11,7 @@ export interface DownloadOptions {
   onProgress?: (p: DownloadProgress) => void;
   signal?: AbortSignal;
   split?: { train: number; val: number; test: number; seed: number };
+  excludeOccluded?: boolean;
 }
 
 export type ExportFormat = 'json' | 'jsonl' | 'csv' | 'yolo' | 'bundle' | 'yolo_split';
@@ -20,10 +21,13 @@ export async function downloadExport(
   format: ExportFormat,
   opts?: DownloadOptions,
 ) {
-  const params: Record<string, string | number> =
-    format === 'yolo_split' && opts?.split
-      ? { format, ...opts.split }
-      : { format };
+  const params: Record<string, string | number | boolean> = { format };
+  if (format === 'yolo_split' && opts?.split) {
+    Object.assign(params, opts.split);
+  }
+  if ((format === 'yolo' || format === 'yolo_split') && opts?.excludeOccluded) {
+    params.exclude_occluded = true;
+  }
   const res = await api.get(`/projects/${projectId}/export`, {
     params,
     responseType: 'blob',
