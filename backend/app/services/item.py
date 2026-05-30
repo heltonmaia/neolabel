@@ -1,7 +1,7 @@
 import csv
 import io
 import json
-import random  # noqa: F401  # used in a later task (yolo split)
+import random
 import tempfile
 import zipfile
 from collections.abc import Iterator
@@ -652,6 +652,87 @@ def build_yolo_export(project_id: int) -> tuple[BinaryIO, int]:
             f"Project: {project_id}\n"
             f"Exported: {exported} annotated frames\n"
             f"Format: Ultralytics YOLO-pose, {schema_label}\n"
+            f"Train with e.g.:\n"
+            f"  yolo pose train data=data.yaml model=yolo11n-pose.pt epochs=100\n"
+            f"(same yaml works for YOLOv8/v11/v12/v26 pose.)\n",
+        )
+
+    size = spooled.tell()
+    spooled.seek(0)
+    return spooled, size
+
+
+def build_yolo_split_export(
+    project_id: int, train: int, val: int, test: int, seed: int
+) -> tuple[BinaryIO, int]:
+    """Build a YOLO-pose dataset ZIP split into train/val/test (Ultralytics).
+
+    Ratios are integer percentages that the caller has already validated to
+    sum to 100. The eligible records (same filter as the flat export) are
+    shuffled with a seeded RNG and partitioned by floor counts; the catch-all
+    split takes the remainder so no frame is dropped. When test == 0 the test
+    folders and the data.yaml `test:` key are omitted and val is the catch-all.
+
+    Layout:
+        data.yaml
+        images/{train,val,test}/<stem>.jpg
+        labels/{train,val,test}/<stem>.txt
+    """
+    project = storage.load_project(project_id) or {}
+    num_kpts, flip_idx, class_name, schema_label = _yolo_schema_meta(project)
+
+    records = list(_yolo_records(project_id, num_kpts))
+    random.Random(seed).shuffle(records)
+    n = len(records)
+    n_train = n * train // 100
+    n_val = n * val // 100
+
+    if test > 0:
+        splits = [
+            ("train", records[:n_train]),
+            ("val", records[n_train : n_train + n_val]),
+            ("test", records[n_train + n_val :]),
+        ]
+    else:
+        # val is the catch-all so flooring never drops the remainder.
+        splits = [
+            ("train", records[:n_train]),
+            ("val", records[n_train:]),
+        ]
+
+    spooled = tempfile.SpooledTemporaryFile(max_size=64 * 1024 * 1024, mode="w+b")
+    with zipfile.ZipFile(spooled, "w", zipfile.ZIP_DEFLATED) as zf:
+        yaml_lines = [
+            f"# YOLO-pose dataset ({schema_label})",
+            "train: images/train",
+            "val: images/val",
+        ]
+        if test > 0:
+            yaml_lines.append("test: images/test")
+        yaml_lines += [
+            f"kpt_shape: [{num_kpts}, 3]",
+            f"flip_idx: {flip_idx}",
+            "names:",
+            f"  0: {class_name}",
+            "",
+        ]
+        zf.writestr("data.yaml", "\n".join(yaml_lines))
+
+        counts: dict[str, int] = {}
+        for split_name, recs in splits:
+            counts[split_name] = len(recs)
+            for src, stem, label_line in recs:
+                zf.write(src, f"images/{split_name}/{stem}{src.suffix}")
+                zf.writestr(f"labels/{split_name}/{stem}.txt", label_line)
+
+        count_str = ", ".join(f"{k}={v}" for k, v in counts.items())
+        zf.writestr(
+            "README.txt",
+            f"NeoLabel YOLO-pose split export\n"
+            f"Project: {project_id}\n"
+            f"Format: Ultralytics YOLO-pose, {schema_label}\n"
+            f"Split: train={train}% val={val}% test={test}% (seed={seed})\n"
+            f"Frames per split: {count_str}\n"
             f"Train with e.g.:\n"
             f"  yolo pose train data=data.yaml model=yolo11n-pose.pt epochs=100\n"
             f"(same yaml works for YOLOv8/v11/v12/v26 pose.)\n",

@@ -8,11 +8,11 @@ def _tiny_jpeg(width: int, height: int) -> bytes:
     """Produce a minimal SOI+SOF0+EOI JPEG blob — enough for _jpeg_size()."""
     sof0 = (
         b"\xff\xc0"
-        + struct.pack(">H", 11)      # segment length
-        + b"\x08"                    # precision
+        + struct.pack(">H", 11)  # segment length
+        + b"\x08"  # precision
         + struct.pack(">H", height)
         + struct.pack(">H", width)
-        + b"\x01\x01\x11\x00"        # 1 component
+        + b"\x01\x01\x11\x00"  # 1 component
     )
     return b"\xff\xd8" + sof0 + b"\xff\xd9"
 
@@ -69,9 +69,7 @@ def test_bulk_upload_isolated_per_project(client, auth_headers, second_user_head
     assert r2.json()["total"] == 2
 
 
-def test_bulk_upload_blocked_for_other_user(
-    client, auth_headers, second_user_headers, project
-):
+def test_bulk_upload_blocked_for_other_user(client, auth_headers, second_user_headers, project):
     r = client.post(
         f"/api/v1/projects/{project['id']}/items/bulk",
         json={"items": [{"payload": {"t": 1}}]},
@@ -86,9 +84,9 @@ def test_annotation_upsert_and_roundtrip(client, auth_headers, project):
         json={"items": [{"payload": {"text": "a"}}]},
         headers=auth_headers,
     )
-    items = client.get(
-        f"/api/v1/projects/{project['id']}/items", headers=auth_headers
-    ).json()["items"]
+    items = client.get(f"/api/v1/projects/{project['id']}/items", headers=auth_headers).json()[
+        "items"
+    ]
     item_id = items[0]["id"]
 
     r = client.put(
@@ -110,9 +108,9 @@ def test_annotation_updates_overwrite(client, auth_headers, project):
         json={"items": [{"payload": {"text": "a"}}]},
         headers=auth_headers,
     )
-    iid = client.get(
-        f"/api/v1/projects/{project['id']}/items", headers=auth_headers
-    ).json()["items"][0]["id"]
+    iid = client.get(f"/api/v1/projects/{project['id']}/items", headers=auth_headers).json()[
+        "items"
+    ][0]["id"]
 
     client.put(
         f"/api/v1/items/{iid}/annotation",
@@ -138,9 +136,7 @@ def test_export_json(client, auth_headers, project):
         json={"items": [{"payload": {"text": "a"}}]},
         headers=auth_headers,
     )
-    r = client.get(
-        f"/api/v1/projects/{project['id']}/export?format=json", headers=auth_headers
-    )
+    r = client.get(f"/api/v1/projects/{project['id']}/export?format=json", headers=auth_headers)
     assert r.status_code == 200
     rows = json.loads(r.content)
     assert len(rows) == 1
@@ -153,9 +149,7 @@ def test_export_jsonl(client, auth_headers, project):
         json={"items": [{"payload": {"text": "a"}}, {"payload": {"text": "b"}}]},
         headers=auth_headers,
     )
-    r = client.get(
-        f"/api/v1/projects/{project['id']}/export?format=jsonl", headers=auth_headers
-    )
+    r = client.get(f"/api/v1/projects/{project['id']}/export?format=jsonl", headers=auth_headers)
     assert r.status_code == 200
     lines = r.text.strip().split("\n")
     assert len(lines) == 2
@@ -168,24 +162,20 @@ def test_export_csv(client, auth_headers, project):
         json={"items": [{"payload": {"text": "a"}}]},
         headers=auth_headers,
     )
-    r = client.get(
-        f"/api/v1/projects/{project['id']}/export?format=csv", headers=auth_headers
-    )
+    r = client.get(f"/api/v1/projects/{project['id']}/export?format=csv", headers=auth_headers)
     assert r.status_code == 200
     assert r.text.splitlines()[0] == "id,payload,status,annotation"
 
 
-def test_pose_item_stays_in_progress_until_all_17_keypoints(
-    client, auth_headers, project
-):
+def test_pose_item_stays_in_progress_until_all_17_keypoints(client, auth_headers, project):
     client.post(
         f"/api/v1/projects/{project['id']}/items/bulk",
         json={"items": [{"payload": {"image_url": "/x.jpg"}}]},
         headers=auth_headers,
     )
-    iid = client.get(
-        f"/api/v1/projects/{project['id']}/items", headers=auth_headers
-    ).json()["items"][0]["id"]
+    iid = client.get(f"/api/v1/projects/{project['id']}/items", headers=auth_headers).json()[
+        "items"
+    ][0]["id"]
 
     # Partial: only 3 keypoints placed
     partial = [[0, 0, 0]] * 17
@@ -197,9 +187,9 @@ def test_pose_item_stays_in_progress_until_all_17_keypoints(
         json={"value": {"keypoints": partial}},
         headers=auth_headers,
     )
-    items = client.get(
-        f"/api/v1/projects/{project['id']}/items", headers=auth_headers
-    ).json()["items"]
+    items = client.get(f"/api/v1/projects/{project['id']}/items", headers=auth_headers).json()[
+        "items"
+    ]
     assert items[0]["status"] == "in_progress"
 
     # Complete: all 17 labeled (mix of visible/occluded both count)
@@ -209,15 +199,13 @@ def test_pose_item_stays_in_progress_until_all_17_keypoints(
         json={"value": {"keypoints": full}},
         headers=auth_headers,
     )
-    items = client.get(
-        f"/api/v1/projects/{project['id']}/items", headers=auth_headers
-    ).json()["items"]
+    items = client.get(f"/api/v1/projects/{project['id']}/items", headers=auth_headers).json()[
+        "items"
+    ]
     assert items[0]["status"] == "done"
 
 
-def test_out_of_frame_keypoints_count_as_addressed(
-    client, auth_headers, project
-):
+def test_out_of_frame_keypoints_count_as_addressed(client, auth_headers, project):
     """Pose items reach `done` when every keypoint is either labeled (v>0) or
     explicitly marked out-of-frame via the parallel `out_of_frame` array."""
     client.post(
@@ -225,9 +213,9 @@ def test_out_of_frame_keypoints_count_as_addressed(
         json={"items": [{"payload": {"image_url": "/x.jpg"}}]},
         headers=auth_headers,
     )
-    iid = client.get(
-        f"/api/v1/projects/{project['id']}/items", headers=auth_headers
-    ).json()["items"][0]["id"]
+    iid = client.get(f"/api/v1/projects/{project['id']}/items", headers=auth_headers).json()[
+        "items"
+    ][0]["id"]
 
     # 16 keypoints placed, 1 left as [0,0,0] without an OOF flag → still in_progress.
     kps = [[i * 10, i * 10, 2] for i in range(16)] + [[0, 0, 0]]
@@ -253,9 +241,7 @@ def test_out_of_frame_keypoints_count_as_addressed(
     assert item["annotation"]["value"]["out_of_frame"][16] is True
 
 
-def test_legacy_annotation_without_out_of_frame_still_works(
-    client, auth_headers, project
-):
+def test_legacy_annotation_without_out_of_frame_still_works(client, auth_headers, project):
     """Pre-existing annotations omit the `out_of_frame` field; the v>0 rule
     still decides done/in_progress, so historical data behaves unchanged."""
     client.post(
@@ -263,9 +249,9 @@ def test_legacy_annotation_without_out_of_frame_still_works(
         json={"items": [{"payload": {"image_url": "/x.jpg"}}]},
         headers=auth_headers,
     )
-    iid = client.get(
-        f"/api/v1/projects/{project['id']}/items", headers=auth_headers
-    ).json()["items"][0]["id"]
+    iid = client.get(f"/api/v1/projects/{project['id']}/items", headers=auth_headers).json()[
+        "items"
+    ][0]["id"]
 
     full = [[i * 10, i * 10, 2] for i in range(17)]
     client.put(
@@ -290,15 +276,18 @@ def test_export_yolo_zip_contains_dataset(client, auth_headers, project, tmp_pat
         f"/api/v1/projects/{project['id']}/items/bulk",
         json={
             "items": [
-                {"payload": {"image_url": "/files/projects/"
-                             f"{project['id']}/frames/vid/f_000001.jpg"}}
+                {
+                    "payload": {
+                        "image_url": f"/files/projects/{project['id']}/frames/vid/f_000001.jpg"
+                    }
+                }
             ]
         },
         headers=auth_headers,
     )
-    iid = client.get(
-        f"/api/v1/projects/{project['id']}/items", headers=auth_headers
-    ).json()["items"][0]["id"]
+    iid = client.get(f"/api/v1/projects/{project['id']}/items", headers=auth_headers).json()[
+        "items"
+    ][0]["id"]
     full = [[10 + i * 5, 20 + i * 5, 2] for i in range(17)]
     client.put(
         f"/api/v1/items/{iid}/annotation",
@@ -306,9 +295,7 @@ def test_export_yolo_zip_contains_dataset(client, auth_headers, project, tmp_pat
         headers=auth_headers,
     )
 
-    r = client.get(
-        f"/api/v1/projects/{project['id']}/export?format=yolo", headers=auth_headers
-    )
+    r = client.get(f"/api/v1/projects/{project['id']}/export?format=yolo", headers=auth_headers)
     assert r.status_code == 200
     assert r.headers["content-type"] == "application/zip"
 
@@ -348,17 +335,25 @@ def test_export_bundle_ships_annotations_and_images(client, auth_headers, projec
         f"/api/v1/projects/{project['id']}/items/bulk",
         json={
             "items": [
-                {"payload": {"image_url": f"/files/projects/{project['id']}/frames/vid/f_000001.jpg"}},
-                {"payload": {"image_url": f"/files/projects/{project['id']}/frames/vid/f_000002.jpg"}},
+                {
+                    "payload": {
+                        "image_url": f"/files/projects/{project['id']}/frames/vid/f_000001.jpg"
+                    }
+                },
+                {
+                    "payload": {
+                        "image_url": f"/files/projects/{project['id']}/frames/vid/f_000002.jpg"
+                    }
+                },
             ]
         },
         headers=auth_headers,
     )
     item_ids = [
         i["id"]
-        for i in client.get(
-            f"/api/v1/projects/{project['id']}/items", headers=auth_headers
-        ).json()["items"]
+        for i in client.get(f"/api/v1/projects/{project['id']}/items", headers=auth_headers).json()[
+            "items"
+        ]
     ]
     full = [[i * 10, i * 10, 2] for i in range(17)]
     # Annotate only the first item; leave the second pending.
@@ -402,9 +397,9 @@ def test_clear_annotation_resets_status(client, auth_headers, project):
         json={"items": [{"payload": {"text": "a"}}]},
         headers=auth_headers,
     )
-    iid = client.get(
-        f"/api/v1/projects/{project['id']}/items", headers=auth_headers
-    ).json()["items"][0]["id"]
+    iid = client.get(f"/api/v1/projects/{project['id']}/items", headers=auth_headers).json()[
+        "items"
+    ][0]["id"]
     full = [[i * 10, i * 10, 2] for i in range(17)]
     client.put(
         f"/api/v1/items/{iid}/annotation",
@@ -427,32 +422,28 @@ def test_delete_item(client, auth_headers, project):
         json={"items": [{"payload": {"text": "a"}}, {"payload": {"text": "b"}}]},
         headers=auth_headers,
     )
-    items = client.get(
-        f"/api/v1/projects/{project['id']}/items", headers=auth_headers
-    ).json()["items"]
+    items = client.get(f"/api/v1/projects/{project['id']}/items", headers=auth_headers).json()[
+        "items"
+    ]
     target = items[0]["id"]
 
     r = client.delete(f"/api/v1/items/{target}", headers=auth_headers)
     assert r.status_code == 204
 
-    remaining = client.get(
-        f"/api/v1/projects/{project['id']}/items", headers=auth_headers
-    ).json()
+    remaining = client.get(f"/api/v1/projects/{project['id']}/items", headers=auth_headers).json()
     assert remaining["total"] == 1
     assert all(i["id"] != target for i in remaining["items"])
 
 
-def test_delete_item_blocked_for_other_user(
-    client, auth_headers, second_user_headers, project
-):
+def test_delete_item_blocked_for_other_user(client, auth_headers, second_user_headers, project):
     client.post(
         f"/api/v1/projects/{project['id']}/items/bulk",
         json={"items": [{"payload": {"text": "a"}}]},
         headers=auth_headers,
     )
-    iid = client.get(
-        f"/api/v1/projects/{project['id']}/items", headers=auth_headers
-    ).json()["items"][0]["id"]
+    iid = client.get(f"/api/v1/projects/{project['id']}/items", headers=auth_headers).json()[
+        "items"
+    ][0]["id"]
 
     r = client.delete(f"/api/v1/items/{iid}", headers=second_user_headers)
     assert r.status_code == 404
@@ -464,9 +455,9 @@ def test_delete_annotated_requires_admin(client, auth_headers, admin_headers, pr
         json={"items": [{"payload": {"text": "a"}}, {"payload": {"text": "b"}}]},
         headers=auth_headers,
     )
-    items = client.get(
-        f"/api/v1/projects/{project['id']}/items", headers=auth_headers
-    ).json()["items"]
+    items = client.get(f"/api/v1/projects/{project['id']}/items", headers=auth_headers).json()[
+        "items"
+    ]
     full = [[i * 10, i * 10, 2] for i in range(17)]
     client.put(
         f"/api/v1/items/{items[0]['id']}/annotation",
@@ -487,15 +478,148 @@ def test_delete_annotated_requires_admin(client, auth_headers, admin_headers, pr
     assert r.status_code == 200
     assert r.json() == {"deleted": 1}
 
-    left = client.get(
-        f"/api/v1/projects/{project['id']}/items", headers=auth_headers
-    ).json()
+    left = client.get(f"/api/v1/projects/{project['id']}/items", headers=auth_headers).json()
     assert left["total"] == 1
     assert left["items"][0]["id"] == items[1]["id"]
 
 
 def test_export_rejects_invalid_format(client, auth_headers, project):
-    r = client.get(
-        f"/api/v1/projects/{project['id']}/export?format=xml", headers=auth_headers
-    )
+    r = client.get(f"/api/v1/projects/{project['id']}/export?format=xml", headers=auth_headers)
     assert r.status_code == 422
+
+
+def _seed_pose_items(client, auth_headers, project, tmp_path, n):
+    """Create n annotated 17-keypoint pose items with real on-disk JPEGs."""
+    for k in range(n):
+        rel = f"projects/{project['id']}/frames/vid/f_{k:06d}.jpg"
+        img_path = tmp_path / rel
+        img_path.parent.mkdir(parents=True, exist_ok=True)
+        img_path.write_bytes(_tiny_jpeg(640, 480))
+        client.post(
+            f"/api/v1/projects/{project['id']}/items/bulk",
+            json={"items": [{"payload": {"image_url": f"/files/{rel}"}}]},
+            headers=auth_headers,
+        )
+    items = client.get(
+        f"/api/v1/projects/{project['id']}/items?limit=500", headers=auth_headers
+    ).json()["items"]
+    full = [[10 + i * 5, 20 + i * 5, 2] for i in range(17)]
+    for it in items:
+        client.put(
+            f"/api/v1/items/{it['id']}/annotation",
+            json={"value": {"keypoints": full}},
+            headers=auth_headers,
+        )
+
+
+def test_build_yolo_split_partitions_without_loss(client, auth_headers, project, tmp_path):
+    import io
+    import zipfile
+
+    from app.services import item as item_service
+
+    _seed_pose_items(client, auth_headers, project, tmp_path, 10)
+
+    stream, size = item_service.build_yolo_split_export(
+        project["id"], train=70, val=20, test=10, seed=42
+    )
+    try:
+        zf = zipfile.ZipFile(io.BytesIO(stream.read()))
+    finally:
+        stream.close()
+    names = zf.namelist()
+
+    def imgs(split):
+        return [n for n in names if n.startswith(f"images/{split}/")]
+
+    assert len(imgs("train")) == 7
+    assert len(imgs("val")) == 2
+    assert len(imgs("test")) == 1
+    total = len(imgs("train")) + len(imgs("val")) + len(imgs("test"))
+    assert total == 10
+    # Every image must have a matching label in the same split (same stem).
+    for split in ("train", "val", "test"):
+        for img in imgs(split):
+            stem = img[len(f"images/{split}/") :].rsplit(".", 1)[0]
+            assert f"labels/{split}/{stem}.txt" in names
+    yaml_text = zf.read("data.yaml").decode()
+    assert "train: images/train" in yaml_text
+    assert "val: images/val" in yaml_text
+    assert "test: images/test" in yaml_text
+    assert "path:" not in yaml_text
+    assert "kpt_shape: [17, 3]" in yaml_text
+
+
+def test_build_yolo_split_is_reproducible_for_a_seed(client, auth_headers, project, tmp_path):
+    import io
+    import zipfile
+
+    from app.services import item as item_service
+
+    _seed_pose_items(client, auth_headers, project, tmp_path, 12)
+
+    def split_map(seed):
+        stream, _ = item_service.build_yolo_split_export(
+            project["id"], train=70, val=20, test=10, seed=seed
+        )
+        try:
+            names = zipfile.ZipFile(io.BytesIO(stream.read())).namelist()
+        finally:
+            stream.close()
+        out = {}
+        for n in names:
+            for split in ("train", "val", "test"):
+                prefix = f"images/{split}/"
+                if n.startswith(prefix):
+                    out[n[len(prefix) :]] = split
+        return out
+
+    assert split_map(42) == split_map(42)
+    assert split_map(42) != split_map(7)
+
+
+def test_build_yolo_split_test_zero_omits_test(client, auth_headers, project, tmp_path):
+    import io
+    import zipfile
+
+    from app.services import item as item_service
+
+    _seed_pose_items(client, auth_headers, project, tmp_path, 10)
+
+    stream, _ = item_service.build_yolo_split_export(
+        project["id"], train=80, val=20, test=0, seed=42
+    )
+    try:
+        zf = zipfile.ZipFile(io.BytesIO(stream.read()))
+    finally:
+        stream.close()
+    names = zf.namelist()
+    assert not any(n.startswith("images/test/") for n in names)
+    assert not any(n.startswith("labels/test/") for n in names)
+    assert "test:" not in zf.read("data.yaml").decode()
+    n_train = len([n for n in names if n.startswith("images/train/")])
+    n_val = len([n for n in names if n.startswith("images/val/")])
+    assert n_train + n_val == 10
+
+
+def test_build_yolo_split_tiny_dataset_does_not_crash(client, auth_headers, project, tmp_path):
+    import io
+    import zipfile
+
+    from app.services import item as item_service
+
+    _seed_pose_items(client, auth_headers, project, tmp_path, 3)
+
+    stream, _ = item_service.build_yolo_split_export(
+        project["id"], train=70, val=20, test=10, seed=42
+    )
+    try:
+        names = zipfile.ZipFile(io.BytesIO(stream.read())).namelist()
+    finally:
+        stream.close()
+    total = len([n for n in names if n.startswith("images/")])
+    assert total == 3
+    # Known, intended limitation: a tiny dataset can floor a non-catch-all
+    # split to zero. n=3 at 70/20/10 → n_val = 3 * 20 // 100 = 0, so `val`
+    # is empty by design (the user accepted this in the spec).
+    assert len([n for n in names if n.startswith("images/val/")]) == 0
