@@ -198,6 +198,12 @@ user does not own returns **404** (to avoid leaking existence), with
   the same split. When `test=0`, the test folders and the `test:` key
   in `data.yaml` are omitted and `val` absorbs the rounding remainder
   (no frame is dropped). Annotated-only, like `yolo`.
+- `exclude_occluded` (bool, default `false`; applies to `yolo` and
+  `yolo_split`, ignored otherwise) — when `true`, occluded keypoints
+  (`v=1`) are written as `0 0 0` (demoted to `v=0`) so they carry no
+  keypoint training supervision. The bounding box is unchanged: occluded
+  points still count toward it. Lets you A/B a dataset that trains on
+  occluded joints against one that doesn't.
 
 ### Videos (pose projects)
 - `POST   /projects/{id}/videos` — admin-only; form(`file`, `fps`,
