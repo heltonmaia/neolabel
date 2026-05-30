@@ -82,9 +82,7 @@ def list_items(
     # Non-admin, non-owner: force filter to own assignments.
     if current_user.role != "admin" and project.owner_id != current_user.id:
         assigned_to = current_user.id
-    items, total = item_service.list_for_project(
-        project_id, limit, offset, assigned_to=assigned_to
-    )
+    items, total = item_service.list_for_project(project_id, limit, offset, assigned_to=assigned_to)
     return {"total": total, "items": items}
 
 
@@ -179,9 +177,7 @@ def upsert_annotation(
 
 
 @router.post("/items/{item_id}/review", response_model=ItemRead, tags=["items"])
-def review_item(
-    item_id: int, data: ItemReviewIn, current_user: CurrentUser
-) -> ItemRead:
+def review_item(item_id: int, data: ItemReviewIn, current_user: CurrentUser) -> ItemRead:
     item = item_service.get(item_id)
     if not item:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Item not found")
@@ -231,7 +227,11 @@ def _stream_zip(stream, size: int, filename: str) -> StreamingResponse:
 def export_project(
     project_id: int,
     current_user: CurrentUser,
-    format: str = Query("json", pattern="^(json|jsonl|csv|yolo|bundle)$"),
+    format: str = Query("json", pattern="^(json|jsonl|csv|yolo|bundle|yolo_split)$"),
+    train: int = Query(70, ge=0, le=100),
+    val: int = Query(20, ge=0, le=100),
+    test: int = Query(10, ge=0, le=100),
+    seed: int = Query(42),
 ) -> Response:
     _require_project_for_owner(project_id, current_user)
 
@@ -242,6 +242,15 @@ def export_project(
         stream, size = item_service.build_yolo_export(project_id)
         return _stream_zip(stream, size, f"project_{project_id}_yolo.zip")
 
+    if format == "yolo_split":
+        if train + val + test != 100:
+            raise HTTPException(
+                status_code=422,
+                detail="train + val + test must sum to 100",
+            )
+        stream, size = item_service.build_yolo_split_export(project_id, train, val, test, seed)
+        return _stream_zip(stream, size, f"project_{project_id}_yolo_split.zip")
+
     if format == "bundle":
         stream, size = item_service.build_bundle_export(project_id)
         return _stream_zip(stream, size, f"project_{project_id}_bundle.zip")
@@ -250,22 +259,16 @@ def export_project(
         return StreamingResponse(
             item_service.iter_export_json(project_id),
             media_type="application/json",
-            headers={
-                "Content-Disposition": f'attachment; filename="project_{project_id}.json"'
-            },
+            headers={"Content-Disposition": f'attachment; filename="project_{project_id}.json"'},
         )
     if format == "jsonl":
         return StreamingResponse(
             item_service.iter_export_jsonl(project_id),
             media_type="application/x-ndjson",
-            headers={
-                "Content-Disposition": f'attachment; filename="project_{project_id}.jsonl"'
-            },
+            headers={"Content-Disposition": f'attachment; filename="project_{project_id}.jsonl"'},
         )
     return StreamingResponse(
         item_service.iter_export_csv(project_id),
         media_type="text/csv",
-        headers={
-            "Content-Disposition": f'attachment; filename="project_{project_id}.csv"'
-        },
+        headers={"Content-Disposition": f'attachment; filename="project_{project_id}.csv"'},
     )

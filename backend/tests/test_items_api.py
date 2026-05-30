@@ -623,3 +623,33 @@ def test_build_yolo_split_tiny_dataset_does_not_crash(client, auth_headers, proj
     # split to zero. n=3 at 70/20/10 → n_val = 3 * 20 // 100 = 0, so `val`
     # is empty by design (the user accepted this in the spec).
     assert len([n for n in names if n.startswith("images/val/")]) == 0
+
+
+def test_export_yolo_split_endpoint(client, auth_headers, project, tmp_path):
+    import io
+    import zipfile
+
+    _seed_pose_items(client, auth_headers, project, tmp_path, 10)
+
+    r = client.get(
+        f"/api/v1/projects/{project['id']}/export"
+        "?format=yolo_split&train=70&val=20&test=10&seed=42",
+        headers=auth_headers,
+    )
+    assert r.status_code == 200
+    assert "application/zip" in r.headers["content-type"]
+    assert "project_%d_yolo_split.zip" % project["id"] in r.headers["content-disposition"]
+    names = zipfile.ZipFile(io.BytesIO(r.content)).namelist()
+    assert "data.yaml" in names
+    assert any(n.startswith("images/train/") for n in names)
+    assert any(n.startswith("images/val/") for n in names)
+    assert any(n.startswith("images/test/") for n in names)
+
+
+def test_export_yolo_split_rejects_bad_ratio_sum(client, auth_headers, project):
+    r = client.get(
+        f"/api/v1/projects/{project['id']}/export"
+        "?format=yolo_split&train=70&val=20&test=20&seed=42",
+        headers=auth_headers,
+    )
+    assert r.status_code == 422
