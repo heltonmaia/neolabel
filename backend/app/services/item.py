@@ -557,18 +557,16 @@ def _yolo_schema_meta(project: dict) -> tuple[int, list[int], str, str]:
     )
 
 
-def _yolo_records(
-    project_id: int, num_kpts: int, exclude_occluded: bool = False
-) -> Iterator[tuple[Path, str, str]]:
-    """Yield (src_path, stem, label_line) for every export-eligible item.
+def eligible_pose_items(
+    project_id: int, num_kpts: int
+) -> Iterator[tuple[dict, Path, int, int, list]]:
+    """Yield (item, src, w, h, kps) for every export-eligible pose item, in
+    `storage.list_items` order. Shared by the YOLO and COCO exporters so both
+    see the SAME ordered set — which is what makes their seeded splits match.
 
-    Eligibility (all must hold): has an annotation, keypoint count matches the
-    project schema, `image_url` is under `/files/`, the source frame exists on
-    disk, its JPEG dims are readable, and at least one keypoint is visible.
-    The label line is the normalized YOLO-pose row `0 cx cy w h x1 y1 v1 ...`.
-    When `exclude_occluded` is set, occluded keypoints (v=1) are written as
-    `0 0 0` (demoted to v=0) so they carry no keypoint supervision; the bbox
-    still uses them.
+    Eligibility (all must hold): has an annotation; keypoint count matches the
+    schema; `image_url` is under `/files/`; the source frame exists; its JPEG
+    dims are readable; at least one keypoint is visible (v>0).
     """
     items = storage.list_items(project_id)
     anns = {a["item_id"]: a for a in storage.list_annotations_for_project(project_id)}
@@ -591,10 +589,23 @@ def _yolo_records(
         if not dims:
             continue
         w, h = dims
-
-        visible_pts = [(x, y) for x, y, v in kps if v > 0]
-        if not visible_pts:
+        if not any(v > 0 for *_, v in kps):
             continue
+        yield item, src, w, h, kps
+
+
+def _yolo_records(
+    project_id: int, num_kpts: int, exclude_occluded: bool = False
+) -> Iterator[tuple[Path, str, str]]:
+    """Yield (src_path, stem, label_line) for every export-eligible item.
+
+    The label line is the normalized YOLO-pose row `0 cx cy w h x1 y1 v1 ...`.
+    When `exclude_occluded` is set, occluded keypoints (v=1) are written as
+    `0 0 0` (demoted to v=0) so they carry no keypoint supervision; the bbox
+    still uses them.
+    """
+    for item, src, w, h, kps in eligible_pose_items(project_id, num_kpts):
+        visible_pts = [(x, y) for x, y, v in kps if v > 0]
         xs = [p[0] for p in visible_pts]
         ys = [p[1] for p in visible_pts]
         x0, x1 = min(xs), max(xs)
@@ -622,9 +633,7 @@ def _yolo_records(
         yield src, stem, label_line
 
 
-def build_yolo_export(
-    project_id: int, exclude_occluded: bool = False
-) -> tuple[BinaryIO, int]:
+def build_yolo_export(project_id: int, exclude_occluded: bool = False) -> tuple[BinaryIO, int]:
     """Build a flat YOLO-pose dataset ZIP (Ultralytics format).
 
     Everything lands in images/train + labels/train; data.yaml points both
@@ -653,18 +662,12 @@ def build_yolo_export(
         )
 
         exported = 0
-        for src, stem, label_line in _yolo_records(
-            project_id, num_kpts, exclude_occluded
-        ):
+        for src, stem, label_line in _yolo_records(project_id, num_kpts, exclude_occluded):
             zf.write(src, f"images/train/{stem}{src.suffix}")
             zf.writestr(f"labels/train/{stem}.txt", label_line)
             exported += 1
 
-        occ_note = (
-            "Occluded keypoints (v=1): excluded from training\n"
-            if exclude_occluded
-            else ""
-        )
+        occ_note = "Occluded keypoints (v=1): excluded from training\n" if exclude_occluded else ""
         zf.writestr(
             "README.txt",
             f"NeoLabel YOLO-pose export\n"
@@ -682,8 +685,40 @@ def build_yolo_export(
     return spooled, size
 
 
+def partition_records(
+    seq: list, train: int, val: int, test: int, seed: int
+) -> list[tuple[str, list]]:
+    """Shuffle `seq` with a seeded RNG and partition by floor counts.
+
+    Returns [("train", [...]), ("val", [...]), ("test", [...])]. train and val
+    get exact floor counts; the catch-all split absorbs the remainder so no
+    element is ever dropped — `test` when test > 0, otherwise `val` (and the
+    test split is omitted). Shared by the YOLO and COCO split exporters so
+    identical inputs + params produce identical assignments.
+    """
+    seq = list(seq)
+    random.Random(seed).shuffle(seq)
+    n = len(seq)
+    n_train = n * train // 100
+    n_val = n * val // 100
+    if test > 0:
+        return [
+            ("train", seq[:n_train]),
+            ("val", seq[n_train : n_train + n_val]),
+            ("test", seq[n_train + n_val :]),
+        ]
+    return [
+        ("train", seq[:n_train]),
+        ("val", seq[n_train:]),
+    ]
+
+
 def build_yolo_split_export(
-    project_id: int, train: int, val: int, test: int, seed: int,
+    project_id: int,
+    train: int,
+    val: int,
+    test: int,
+    seed: int,
     exclude_occluded: bool = False,
 ) -> tuple[BinaryIO, int]:
     """Build a YOLO-pose dataset ZIP split into train/val/test (Ultralytics).
@@ -703,23 +738,7 @@ def build_yolo_split_export(
     num_kpts, flip_idx, class_name, schema_label = _yolo_schema_meta(project)
 
     records = list(_yolo_records(project_id, num_kpts, exclude_occluded))
-    random.Random(seed).shuffle(records)
-    n = len(records)
-    n_train = n * train // 100
-    n_val = n * val // 100
-
-    if test > 0:
-        splits = [
-            ("train", records[:n_train]),
-            ("val", records[n_train : n_train + n_val]),
-            ("test", records[n_train + n_val :]),
-        ]
-    else:
-        # val is the catch-all so flooring never drops the remainder.
-        splits = [
-            ("train", records[:n_train]),
-            ("val", records[n_train:]),
-        ]
+    splits = partition_records(records, train, val, test, seed)
 
     spooled = tempfile.SpooledTemporaryFile(max_size=64 * 1024 * 1024, mode="w+b")
     with zipfile.ZipFile(spooled, "w", zipfile.ZIP_DEFLATED) as zf:
@@ -747,11 +766,7 @@ def build_yolo_split_export(
                 zf.writestr(f"labels/{split_name}/{stem}.txt", label_line)
 
         count_str = ", ".join(f"{k}={v}" for k, v in counts.items())
-        occ_note = (
-            "Occluded keypoints (v=1): excluded from training\n"
-            if exclude_occluded
-            else ""
-        )
+        occ_note = "Occluded keypoints (v=1): excluded from training\n" if exclude_occluded else ""
         zf.writestr(
             "README.txt",
             f"NeoLabel YOLO-pose split export\n"
