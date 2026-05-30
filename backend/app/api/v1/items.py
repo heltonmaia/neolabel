@@ -10,6 +10,7 @@ from app.schemas.item import (
     ItemRead,
     ItemReviewIn,
 )
+from app.services import coco_export as coco_service
 from app.services import item as item_service
 from app.services import project as project_service
 
@@ -227,14 +228,41 @@ def _stream_zip(stream, size: int, filename: str) -> StreamingResponse:
 def export_project(
     project_id: int,
     current_user: CurrentUser,
-    format: str = Query("json", pattern="^(json|jsonl|csv|yolo|bundle|yolo_split)$"),
+    format: str = Query(
+        "json",
+        pattern="^(json|jsonl|csv|yolo|bundle|yolo_split|coco|coco_split)$",
+    ),
     train: int = Query(70, ge=0, le=100),
     val: int = Query(20, ge=0, le=100),
     test: int = Query(10, ge=0, le=100),
     seed: int = Query(42),
     exclude_occluded: bool = Query(False),
 ) -> Response:
-    _require_project_for_owner(project_id, current_user)
+    project = _require_project_for_owner(project_id, current_user)
+
+    if format in ("coco", "coco_split"):
+        # KeypointSchema is a str-enum, so == "infant" compares by value.
+        if project.keypoint_schema != "infant":
+            raise HTTPException(
+                status_code=422,
+                detail="COCO export is only available for infant (17-keypoint) pose projects",
+            )
+        if format == "coco":
+            data = coco_service.build_coco_export(project_id)
+            return Response(
+                content=data,
+                media_type="application/json",
+                headers={
+                    "Content-Disposition": f'attachment; filename="project_{project_id}_coco.json"'
+                },
+            )
+        if train + val + test != 100:
+            raise HTTPException(
+                status_code=422,
+                detail="train + val + test must sum to 100",
+            )
+        stream, size = coco_service.build_coco_split_export(project_id, train, val, test, seed)
+        return _stream_zip(stream, size, f"project_{project_id}_coco_split.zip")
 
     # YOLO is always annotated-only — unannotated frames have no labels.
     # Every other format always includes every item (pending rows carry

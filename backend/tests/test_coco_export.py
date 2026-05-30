@@ -145,3 +145,43 @@ def test_coco_split_matches_yolo_split(client, auth_headers, project):
 
     assert coco_map == yolo_map
     assert len(coco_map) == 10
+
+
+def test_export_coco_endpoint(client, auth_headers, project):
+    _seed_pose_items(client, auth_headers, project, 2)
+    r = client.get(
+        f"/api/v1/projects/{project['id']}/export?format=coco",
+        headers=auth_headers,
+    )
+    assert r.status_code == 200
+    assert "application/json" in r.headers["content-type"]
+    assert "project_%d_coco.json" % project["id"] in r.headers["content-disposition"]
+    doc = json.loads(r.content)
+    assert set(doc.keys()) == {"images", "annotations", "categories"}
+    assert len(doc["images"]) == 2
+
+
+def test_export_coco_split_endpoint(client, auth_headers, project):
+    _seed_pose_items(client, auth_headers, project, 10)
+    r = client.get(
+        f"/api/v1/projects/{project['id']}/export"
+        "?format=coco_split&train=70&val=20&test=10&seed=42",
+        headers=auth_headers,
+    )
+    assert r.status_code == 200
+    assert "application/zip" in r.headers["content-type"]
+    names = zipfile.ZipFile(io.BytesIO(r.content)).namelist()
+    assert set(names) == {"train.json", "val.json", "test.json"}
+
+
+def test_export_coco_rejects_rodent(client, auth_headers):
+    r = client.post(
+        "/api/v1/projects",
+        json={"name": "rodent-p", "type": "pose_detection", "keypoint_schema": "rodent"},
+        headers=auth_headers,
+    )
+    rid = r.json()["id"]
+    r1 = client.get(f"/api/v1/projects/{rid}/export?format=coco", headers=auth_headers)
+    r2 = client.get(f"/api/v1/projects/{rid}/export?format=coco_split", headers=auth_headers)
+    assert r1.status_code == 422
+    assert r2.status_code == 422
