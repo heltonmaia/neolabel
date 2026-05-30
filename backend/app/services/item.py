@@ -1,6 +1,7 @@
 import csv
 import io
 import json
+import random  # noqa: F401  # used in a later task (yolo split)
 import tempfile
 import zipfile
 from collections.abc import Iterator
@@ -23,9 +24,7 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def bulk_create(
-    project_id: int, items: list[ItemCreate], assigned_to: int | None = None
-) -> int:
+def bulk_create(project_id: int, items: list[ItemCreate], assigned_to: int | None = None) -> int:
     count = 0
     for i in items:
         iid = storage.next_id("items")
@@ -210,8 +209,10 @@ def _classify_pair(left_kp: list, right_kp: list) -> str | None:
     is anatomically the subject's left, which is the viewer's right). Returns
     'mirror' if the saved pair disagrees, 'coco' if it matches, None if a
     side is missing/unlabeled or both share the same x."""
+
     def vis(kp: list) -> bool:
         return isinstance(kp, list) and len(kp) >= 3 and kp[2] in (1, 2)
+
     if not vis(left_kp) or not vis(right_kp):
         return None
     if left_kp[0] == right_kp[0]:
@@ -334,7 +335,8 @@ def _check_impossible_anatomy(kps: list) -> dict | None:
         "kind": "impossible_anatomy",
         "summary": (
             "Body landmarks are out of head→ankle order: "
-            + "; ".join(violations) + ". Could be a swap, or a curled/folded pose."
+            + "; ".join(violations)
+            + ". Could be a swap, or a curled/folded pose."
         ),
         "details": {"violations": violations},
     }
@@ -344,14 +346,22 @@ def _check_impossible_anatomy(kps: list) -> dict | None:
 # detail formatter. (Order is the canonical COCO order.)
 COCO_KP_NAMES: list[tuple[int, str]] = [
     (0, "nose"),
-    (1, "left_eye"), (2, "right_eye"),
-    (3, "left_ear"), (4, "right_ear"),
-    (5, "left_shoulder"), (6, "right_shoulder"),
-    (7, "left_elbow"), (8, "right_elbow"),
-    (9, "left_wrist"), (10, "right_wrist"),
-    (11, "left_hip"), (12, "right_hip"),
-    (13, "left_knee"), (14, "right_knee"),
-    (15, "left_ankle"), (16, "right_ankle"),
+    (1, "left_eye"),
+    (2, "right_eye"),
+    (3, "left_ear"),
+    (4, "right_ear"),
+    (5, "left_shoulder"),
+    (6, "right_shoulder"),
+    (7, "left_elbow"),
+    (8, "right_elbow"),
+    (9, "left_wrist"),
+    (10, "right_wrist"),
+    (11, "left_hip"),
+    (12, "right_hip"),
+    (13, "left_knee"),
+    (14, "right_knee"),
+    (15, "left_ankle"),
+    (16, "right_ankle"),
 ]
 
 
@@ -372,7 +382,8 @@ def find_outliers(project_id: int) -> list[dict]:
             continue
         payload = item.get("payload") or {}
         outliers = [
-            check for check in (
+            check
+            for check in (
                 _check_lr_swap(kps),
                 _check_out_of_image(kps, payload),
                 _check_impossible_anatomy(kps),
@@ -381,15 +392,17 @@ def find_outliers(project_id: int) -> list[dict]:
         ]
         if not outliers:
             continue
-        out.append({
-            "id": item["id"],
-            "project_id": item["project_id"],
-            "payload": payload,
-            "status": item["status"],
-            "assigned_to": item.get("assigned_to"),
-            "review_note": item.get("review_note"),
-            "outliers": outliers,
-        })
+        out.append(
+            {
+                "id": item["id"],
+                "project_id": item["project_id"],
+                "payload": payload,
+                "status": item["status"],
+                "assigned_to": item.get("assigned_to"),
+                "review_note": item.get("review_note"),
+                "outliers": outliers,
+            }
+        )
     return out
 
 
@@ -520,42 +533,94 @@ def _jpeg_size(path: Path) -> tuple[int, int] | None:
         return None
 
 
-def build_yolo_export(project_id: int) -> tuple[BinaryIO, int]:
-    """Build a YOLO-pose dataset ZIP (Ultralytics format).
+def _yolo_schema_meta(project: dict) -> tuple[int, list[int], str, str]:
+    """Return (num_kpts, flip_idx, class_name, schema_label) for a pose project.
 
-    Keypoint layout is chosen by the project's `keypoint_schema`:
-    - `infant` → 17 COCO keypoints (default for projects created before the
-      field existed)
-    - `rodent` → 7 keypoints (N, LEar, REar, BC, TB, TM, TT) for OF / EPM
-
-    Spills to disk past 64 MiB so large projects don't pin the container's
-    RAM. Returns a file-like positioned at 0 plus its total byte size so the
-    caller can set `Content-Length` and stream it out. Caller must `close()`
-    the handle when done.
-
-    Structure:
-        data.yaml
-        images/train/<stem>.jpg
-        labels/train/<stem>.txt   — `0 cx cy w h  x1 y1 v1 ... xN yN vN` (normalized)
+    `infant` → 17 COCO keypoints (default when the field predates the schema).
+    `rodent` → 7 keypoints (N, LEar, REar, BC, TB, TM, TT) for OF / EPM.
     """
-    project = storage.load_project(project_id) or {}
     schema = project.get("keypoint_schema") or "infant"
     if schema == "rodent":
-        num_kpts = 7
         # Top-down horizontal flip: LEar (1) and REar (2) swap; rest self-map.
-        flip_idx = [0, 2, 1, 3, 4, 5, 6]
-        class_name = "rodent"
-        schema_label = "rodent (7 keypoints: N, LEar, REar, BC, TB, TM, TT)"
-    else:
-        num_kpts = 17
-        # COCO horizontal-flip index: swaps left<->right joints.
-        flip_idx = [0, 2, 1, 4, 3, 6, 5, 8, 7, 10, 9, 12, 11, 14, 13, 16, 15]
-        class_name = "person"
-        schema_label = "COCO 17 keypoints"
+        return (
+            7,
+            [0, 2, 1, 3, 4, 5, 6],
+            "rodent",
+            "rodent (7 keypoints: N, LEar, REar, BC, TB, TM, TT)",
+        )
+    # COCO horizontal-flip index: swaps left<->right joints.
+    return (
+        17,
+        [0, 2, 1, 4, 3, 6, 5, 8, 7, 10, 9, 12, 11, 14, 13, 16, 15],
+        "person",
+        "COCO 17 keypoints",
+    )
 
+
+def _yolo_records(project_id: int, num_kpts: int) -> Iterator[tuple[Path, str, str]]:
+    """Yield (src_path, stem, label_line) for every export-eligible item.
+
+    Eligibility (all must hold): has an annotation, keypoint count matches the
+    project schema, `image_url` is under `/files/`, the source frame exists on
+    disk, its JPEG dims are readable, and at least one keypoint is visible.
+    The label line is the normalized YOLO-pose row `0 cx cy w h x1 y1 v1 ...`.
+    """
     items = storage.list_items(project_id)
     anns = {a["item_id"]: a for a in storage.list_annotations_for_project(project_id)}
     data_root = Path(settings.DATA_DIR)
+
+    for item in items:
+        ann = anns.get(item["id"])
+        if not ann:
+            continue
+        kps = (ann.get("value") or {}).get("keypoints") or []
+        if len(kps) != num_kpts:
+            continue
+        image_url = (item.get("payload") or {}).get("image_url")
+        if not image_url or not image_url.startswith("/files/"):
+            continue
+        src = data_root / image_url[len("/files/") :]
+        if not src.exists():
+            continue
+        dims = _jpeg_size(src)
+        if not dims:
+            continue
+        w, h = dims
+
+        visible_pts = [(x, y) for x, y, v in kps if v > 0]
+        if not visible_pts:
+            continue
+        xs = [p[0] for p in visible_pts]
+        ys = [p[1] for p in visible_pts]
+        x0, x1 = min(xs), max(xs)
+        y0, y1 = min(ys), max(ys)
+        # pad bbox by 10% on each side
+        pad_x = (x1 - x0) * 0.1 or 5
+        pad_y = (y1 - y0) * 0.1 or 5
+        x0 = max(0, x0 - pad_x)
+        x1 = min(w, x1 + pad_x)
+        y0 = max(0, y0 - pad_y)
+        y1 = min(h, y1 + pad_y)
+        cx = (x0 + x1) / 2 / w
+        cy = (y0 + y1) / 2 / h
+        bw = (x1 - x0) / w
+        bh = (y1 - y0) / h
+
+        kp_str = " ".join(f"{x / w:.6f} {y / h:.6f} {int(v)}" for x, y, v in kps)
+        label_line = f"0 {cx:.6f} {cy:.6f} {bw:.6f} {bh:.6f} {kp_str}\n"
+        stem = f"{item['id']:06d}_{src.stem}"
+        yield src, stem, label_line
+
+
+def build_yolo_export(project_id: int) -> tuple[BinaryIO, int]:
+    """Build a flat YOLO-pose dataset ZIP (Ultralytics format).
+
+    Everything lands in images/train + labels/train; data.yaml points both
+    train and val at images/train. Spills to disk past 64 MiB. Returns a
+    file-like at position 0 plus its byte size; caller must close() it.
+    """
+    project = storage.load_project(project_id) or {}
+    num_kpts, flip_idx, class_name, schema_label = _yolo_schema_meta(project)
 
     spooled = tempfile.SpooledTemporaryFile(max_size=64 * 1024 * 1024, mode="w+b")
     with zipfile.ZipFile(spooled, "w", zipfile.ZIP_DEFLATED) as zf:
@@ -565,58 +630,18 @@ def build_yolo_export(project_id: int) -> tuple[BinaryIO, int]:
         # `check_det_dataset`). With `path: .` it resolves against CWD
         # instead, which breaks any training run started from a directory
         # that isn't the extracted dataset root.
-        yaml = (
+        zf.writestr(
+            "data.yaml",
             f"# YOLO-pose dataset ({schema_label})\n"
             "train: images/train\n"
             "val: images/train\n"
             f"kpt_shape: [{num_kpts}, 3]\n"
             f"flip_idx: {flip_idx}\n"
-            f"names:\n  0: {class_name}\n"
+            f"names:\n  0: {class_name}\n",
         )
-        zf.writestr("data.yaml", yaml)
 
         exported = 0
-        for item in items:
-            ann = anns.get(item["id"])
-            if not ann:
-                continue
-            kps = (ann.get("value") or {}).get("keypoints") or []
-            if len(kps) != num_kpts:
-                continue
-            image_url = (item.get("payload") or {}).get("image_url")
-            if not image_url or not image_url.startswith("/files/"):
-                continue
-            src = data_root / image_url[len("/files/"):]
-            if not src.exists():
-                continue
-            dims = _jpeg_size(src)
-            if not dims:
-                continue
-            w, h = dims
-
-            visible_pts = [(x, y) for x, y, v in kps if v > 0]
-            if not visible_pts:
-                continue
-            xs = [p[0] for p in visible_pts]
-            ys = [p[1] for p in visible_pts]
-            x0, x1 = min(xs), max(xs)
-            y0, y1 = min(ys), max(ys)
-            # pad bbox by 10% on each side
-            pad_x = (x1 - x0) * 0.1 or 5
-            pad_y = (y1 - y0) * 0.1 or 5
-            x0 = max(0, x0 - pad_x)
-            x1 = min(w, x1 + pad_x)
-            y0 = max(0, y0 - pad_y)
-            y1 = min(h, y1 + pad_y)
-            cx = (x0 + x1) / 2 / w
-            cy = (y0 + y1) / 2 / h
-            bw = (x1 - x0) / w
-            bh = (y1 - y0) / h
-
-            kp_str = " ".join(f"{x / w:.6f} {y / h:.6f} {int(v)}" for x, y, v in kps)
-            label_line = f"0 {cx:.6f} {cy:.6f} {bw:.6f} {bh:.6f} {kp_str}\n"
-
-            stem = f"{item['id']:06d}_{src.stem}"
+        for src, stem, label_line in _yolo_records(project_id, num_kpts):
             zf.write(src, f"images/train/{stem}{src.suffix}")
             zf.writestr(f"labels/train/{stem}.txt", label_line)
             exported += 1
@@ -665,7 +690,7 @@ def build_bundle_export(project_id: int) -> tuple[BinaryIO, int]:
             payload = dict(item.get("payload") or {})
             image_url = payload.get("image_url")
             if isinstance(image_url, str) and image_url.startswith("/files/"):
-                src = data_root / image_url[len("/files/"):]
+                src = data_root / image_url[len("/files/") :]
                 if src.exists():
                     stem = f"{item['id']:06d}_{src.stem}"
                     arc = f"images/{stem}{src.suffix}"
