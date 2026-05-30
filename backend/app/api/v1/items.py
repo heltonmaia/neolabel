@@ -241,8 +241,11 @@ def export_project(
     project = _require_project_for_owner(project_id, current_user)
 
     if format in ("coco", "coco_split"):
-        # KeypointSchema is a str-enum, so == "infant" compares by value.
-        if project.keypoint_schema != "infant":
+        # COCO Keypoints is person/COCO-17 only. Guard on the project type as
+        # well as the schema: legacy `image_segmentation` projects also default
+        # keypoint_schema to "infant", so a schema-only check would let them
+        # through and emit an empty COCO doc. (type/schema are str-enums.)
+        if project.type != "pose_detection" or project.keypoint_schema != "infant":
             raise HTTPException(
                 status_code=422,
                 detail="COCO export is only available for infant (17-keypoint) pose projects",

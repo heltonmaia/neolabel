@@ -185,3 +185,18 @@ def test_export_coco_rejects_rodent(client, auth_headers):
     r2 = client.get(f"/api/v1/projects/{rid}/export?format=coco_split", headers=auth_headers)
     assert r1.status_code == 422
     assert r2.status_code == 422
+
+
+def test_export_coco_rejects_non_pose_project(client, auth_headers):
+    # Legacy image_segmentation projects default keypoint_schema to "infant",
+    # so the guard must also reject on project type, not just schema.
+    r = client.post(
+        "/api/v1/projects",
+        json={"name": "seg-p", "type": "image_segmentation"},
+        headers=auth_headers,
+    )
+    sid = r.json()["id"]
+    assert (
+        client.get(f"/api/v1/projects/{sid}/export?format=coco", headers=auth_headers).status_code
+        == 422
+    )
