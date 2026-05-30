@@ -769,3 +769,22 @@ def test_export_yolo_exclude_occluded_endpoint(client, auth_headers, project, tm
     label_name = next(n for n in zf.namelist() if n.startswith("labels/train/"))
     fields = zf.read(label_name).decode().strip().split()
     assert "1" not in fields[7::3]  # no occluded keypoint survives in labels
+
+
+def test_export_yolo_split_exclude_occluded_endpoint(client, auth_headers, project, tmp_path):
+    import io
+    import zipfile
+
+    _seed_one_mixed_pose_item(client, auth_headers, project, tmp_path)
+
+    r = client.get(
+        f"/api/v1/projects/{project['id']}/export"
+        "?format=yolo_split&train=100&val=0&test=0&seed=42&exclude_occluded=true",
+        headers=auth_headers,
+    )
+    assert r.status_code == 200
+    zf = zipfile.ZipFile(io.BytesIO(r.content))
+    label_name = next(n for n in zf.namelist() if n.startswith("labels/"))
+    fields = zf.read(label_name).decode().strip().split()
+    # Cements the router wiring for the split branch: no occluded kp survives.
+    assert "1" not in fields[7::3]
