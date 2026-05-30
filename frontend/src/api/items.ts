@@ -124,9 +124,9 @@ export async function deleteAnnotatedItems(projectId: number) {
   return data;
 }
 
-export function exportUrl(
-  projectId: number,
-  format: 'json' | 'jsonl' | 'csv' | 'yolo' | 'bundle' | 'yolo_split',
-) {
+// Direct-link helper for the streaming text formats only. ZIP formats
+// (yolo/bundle/yolo_split) must go through `downloadExport` so auth headers
+// and the split-config query params are applied — do not widen this union.
+export function exportUrl(projectId: number, format: 'json' | 'jsonl' | 'csv') {
   return `/projects/${projectId}/export?format=${format}`;
 }

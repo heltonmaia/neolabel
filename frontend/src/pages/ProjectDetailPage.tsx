@@ -28,6 +28,15 @@ import { downloadExport, type ExportFormat } from '@/lib/download';
 import { FILES_BASE } from '@/lib/env';
 import { useConfirm } from '@/components/ui/ConfirmDialog';
 
+const FORMAT_LABEL: Record<ExportFormat, string> = {
+  json: 'JSON',
+  jsonl: 'JSONL',
+  csv: 'CSV',
+  yolo: 'YOLO-pose',
+  bundle: 'bundle',
+  yolo_split: 'YOLO-pose split',
+};
+
 function formatBytes(n: number): string {
   if (n < 1024) return `${n} B`;
   if (n < 1024 ** 2) return `${(n / 1024).toFixed(1)} KB`;
@@ -97,14 +106,6 @@ export default function ProjectDetailPage() {
   >(null);
   const [splitCfg, setSplitCfg] = useState({ train: 70, val: 20, test: 10, seed: 42 });
   const splitSum = splitCfg.train + splitCfg.val + splitCfg.test;
-  const FORMAT_LABEL: Record<ExportFormat, string> = {
-    json: 'JSON',
-    jsonl: 'JSONL',
-    csv: 'CSV',
-    yolo: 'YOLO-pose',
-    bundle: 'bundle',
-    yolo_split: 'YOLO-pose split',
-  };
   const exportAbortRef = useRef<AbortController | null>(null);
 
   async function handleExport() {
