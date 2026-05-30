@@ -14,7 +14,15 @@ export interface DownloadOptions {
   excludeOccluded?: boolean;
 }
 
-export type ExportFormat = 'json' | 'jsonl' | 'csv' | 'yolo' | 'bundle' | 'yolo_split';
+export type ExportFormat =
+  | 'json'
+  | 'jsonl'
+  | 'csv'
+  | 'yolo'
+  | 'bundle'
+  | 'yolo_split'
+  | 'coco'
+  | 'coco_split';
 
 export async function downloadExport(
   projectId: number,
@@ -22,7 +30,7 @@ export async function downloadExport(
   opts?: DownloadOptions,
 ) {
   const params: Record<string, string | number | boolean> = { format };
-  if (format === 'yolo_split' && opts?.split) {
+  if ((format === 'yolo_split' || format === 'coco_split') && opts?.split) {
     Object.assign(params, opts.split);
   }
   if ((format === 'yolo' || format === 'yolo_split') && opts?.excludeOccluded) {
@@ -41,14 +49,16 @@ export async function downloadExport(
   const url = URL.createObjectURL(res.data);
   const a = document.createElement('a');
   a.href = url;
-  a.download =
-    format === 'yolo'
-      ? `project_${projectId}_yolo.zip`
-      : format === 'yolo_split'
-        ? `project_${projectId}_yolo_split.zip`
-        : format === 'bundle'
-          ? `project_${projectId}_bundle.zip`
-          : `project_${projectId}.${format}`;
+  // Archive/JSON formats get an explicit name; text formats fall back to the
+  // bare extension (e.g. project_1.json / .jsonl / .csv).
+  const archiveNames: Partial<Record<ExportFormat, string>> = {
+    yolo: `project_${projectId}_yolo.zip`,
+    yolo_split: `project_${projectId}_yolo_split.zip`,
+    coco: `project_${projectId}_coco.json`,
+    coco_split: `project_${projectId}_coco_split.zip`,
+    bundle: `project_${projectId}_bundle.zip`,
+  };
+  a.download = archiveNames[format] ?? `project_${projectId}.${format}`;
   a.click();
   URL.revokeObjectURL(url);
 }

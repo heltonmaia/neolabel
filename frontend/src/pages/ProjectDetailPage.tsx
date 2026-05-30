@@ -35,6 +35,8 @@ const FORMAT_LABEL: Record<ExportFormat, string> = {
   yolo: 'YOLO-pose',
   bundle: 'bundle',
   yolo_split: 'YOLO-pose split',
+  coco: 'COCO Keypoints',
+  coco_split: 'COCO split',
 };
 
 function formatBytes(n: number): string {
@@ -119,7 +121,7 @@ export default function ProjectDetailPage() {
       await downloadExport(projectId, fmt, {
         signal: controller.signal,
         onProgress: (p) => setExportProgress({ format: fmt, loaded: p.loaded, total: p.total }),
-        split: fmt === 'yolo_split' ? splitCfg : undefined,
+        split: fmt === 'yolo_split' || fmt === 'coco_split' ? splitCfg : undefined,
         excludeOccluded:
           fmt === 'yolo' || fmt === 'yolo_split' ? excludeOccluded : undefined,
       });
@@ -498,6 +500,12 @@ export default function ProjectDetailPage() {
                           label: 'YOLO-pose split (ZIP)',
                           hint: 'train / valid / test, seeded',
                         },
+                        { v: 'coco', label: 'COCO Keypoints (JSON)', hint: 'ViTPose / MMPose' },
+                        {
+                          v: 'coco_split',
+                          label: 'COCO split (ZIP)',
+                          hint: 'train/val/test.json, seeded',
+                        },
                         {
                           v: 'bundle',
                           label: 'Full bundle (ZIP)',
@@ -527,7 +535,7 @@ export default function ProjectDetailPage() {
                   </span>
                 </label>
               ))}
-              {exportFormat === 'yolo_split' && (
+              {(exportFormat === 'yolo_split' || exportFormat === 'coco_split') && (
                 <div className="border-t pt-2 mt-1 space-y-2">
                   <div className="grid grid-cols-3 gap-2">
                     {(['train', 'val', 'test'] as const).map((k) => (
@@ -593,7 +601,11 @@ export default function ProjectDetailPage() {
               )}
               <button
                 onClick={handleExport}
-                disabled={!!exportProgress || (exportFormat === 'yolo_split' && splitSum !== 100)}
+                disabled={
+                  !!exportProgress ||
+                  ((exportFormat === 'yolo_split' || exportFormat === 'coco_split') &&
+                    splitSum !== 100)
+                }
                 className="w-full bg-blue-600 text-white text-sm rounded px-3 py-1.5 hover:bg-blue-700 disabled:bg-slate-300"
               >
                 {exportProgress ? 'Downloading…' : 'Download'}
