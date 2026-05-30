@@ -668,9 +668,9 @@ def _seed_one_mixed_pose_item(client, auth_headers, project, tmp_path):
         json={"items": [{"payload": {"image_url": f"/files/{rel}"}}]},
         headers=auth_headers,
     )
-    iid = client.get(
-        f"/api/v1/projects/{project['id']}/items", headers=auth_headers
-    ).json()["items"][0]["id"]
+    iid = client.get(f"/api/v1/projects/{project['id']}/items", headers=auth_headers).json()[
+        "items"
+    ][0]["id"]
     kps = [[50 + i * 5, 60 + i * 5, 2] for i in range(16)] + [[600, 470, 1]]
     client.put(
         f"/api/v1/items/{iid}/annotation",
@@ -752,3 +752,20 @@ def test_yolo_export_default_keeps_occluded(client, auth_headers, project, tmp_p
     fields = _yolo_label_fields(item_service.build_yolo_export(project["id"])[0])
     # Default (no flag) still emits the occluded keypoint with visibility 1.
     assert fields[5 + occ * 3 + 2] == "1"
+
+
+def test_export_yolo_exclude_occluded_endpoint(client, auth_headers, project, tmp_path):
+    import io
+    import zipfile
+
+    _seed_one_mixed_pose_item(client, auth_headers, project, tmp_path)
+
+    r = client.get(
+        f"/api/v1/projects/{project['id']}/export?format=yolo&exclude_occluded=true",
+        headers=auth_headers,
+    )
+    assert r.status_code == 200
+    zf = zipfile.ZipFile(io.BytesIO(r.content))
+    label_name = next(n for n in zf.namelist() if n.startswith("labels/train/"))
+    fields = zf.read(label_name).decode().strip().split()
+    assert "1" not in fields[7::3]  # no occluded keypoint survives in labels

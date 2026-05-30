@@ -232,6 +232,7 @@ def export_project(
     val: int = Query(20, ge=0, le=100),
     test: int = Query(10, ge=0, le=100),
     seed: int = Query(42),
+    exclude_occluded: bool = Query(False),
 ) -> Response:
     _require_project_for_owner(project_id, current_user)
 
@@ -239,7 +240,7 @@ def export_project(
     # Every other format always includes every item (pending rows carry
     # annotation: null). Downstream filtering is on the caller.
     if format == "yolo":
-        stream, size = item_service.build_yolo_export(project_id)
+        stream, size = item_service.build_yolo_export(project_id, exclude_occluded)
         return _stream_zip(stream, size, f"project_{project_id}_yolo.zip")
 
     if format == "yolo_split":
@@ -248,7 +249,9 @@ def export_project(
                 status_code=422,
                 detail="train + val + test must sum to 100",
             )
-        stream, size = item_service.build_yolo_split_export(project_id, train, val, test, seed)
+        stream, size = item_service.build_yolo_split_export(
+            project_id, train, val, test, seed, exclude_occluded=exclude_occluded
+        )
         return _stream_zip(stream, size, f"project_{project_id}_yolo_split.zip")
 
     if format == "bundle":
