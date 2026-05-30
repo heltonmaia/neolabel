@@ -181,7 +181,7 @@ user does not own returns **404** (to avoid leaking existence), with
 - `DELETE /items/{id}/annotation` — clear annotation, keep item
 - `DELETE /items/{id}` — admin/owner only
 - `POST   /projects/{id}/items/delete-annotated` — admin-only bulk
-- `GET    /projects/{id}/export?format=json|jsonl|csv|yolo|bundle|yolo_split` —
+- `GET    /projects/{id}/export?format=json|jsonl|csv|yolo|bundle|yolo_split|coco|coco_split` —
   streams the export. Text formats (`json`, `jsonl`, `csv`) and
   `bundle` always include every item (pending rows carry
   `annotation: null`) — filtering is downstream. `yolo` always
@@ -204,6 +204,14 @@ user does not own returns **404** (to avoid leaking existence), with
   keypoint training supervision. The bounding box is unchanged: occluded
   points still count toward it. Lets you A/B a dataset that trains on
   occluded joints against one that doesn't.
+- `coco` / `coco_split` — COCO Keypoints JSON for ViTPose/MMPose/pycocotools.
+  `coco` streams a single `annotations.json` (`images`/`annotations`/
+  `categories`, absolute-pixel keypoints in COCO-17 order, native 0/1/2
+  visibility, person bbox padded 12% from the visible keypoints). `coco_split`
+  returns a ZIP of `train.json`/`val.json`/`test.json` using the **same**
+  `train/val/test/seed` partition as `yolo_split`, so the COCO and YOLO splits
+  match frame-for-frame (the `file_name` is the same `NNNNNN_<stem>.jpg` as the
+  YOLO export). **Infant pose only** — a rodent project returns **422**.
 
 ### Videos (pose projects)
 - `POST   /projects/{id}/videos` — admin-only; form(`file`, `fps`,
