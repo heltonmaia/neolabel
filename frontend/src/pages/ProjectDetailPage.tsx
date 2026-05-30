@@ -24,7 +24,7 @@ import {
 import { listUsers } from '@/api/users';
 import { deleteVideo, importCocoPose, listVideos, reassignVideo, uploadVideo } from '@/api/videos';
 import type { CocoImportResult, ResizeMode } from '@/api/videos';
-import { downloadExport } from '@/lib/download';
+import { downloadExport, type ExportFormat } from '@/lib/download';
 import { FILES_BASE } from '@/lib/env';
 import { useConfirm } from '@/components/ui/ConfirmDialog';
 
@@ -86,17 +86,25 @@ export default function ProjectDetailPage() {
     };
   }, [videoPreviewUrl]);
   const [exportOpen, setExportOpen] = useState(false);
-  const [exportFormat, setExportFormat] = useState<
-    'json' | 'jsonl' | 'csv' | 'yolo' | 'bundle'
-  >('json');
+  const [exportFormat, setExportFormat] = useState<ExportFormat>('json');
   const [exportProgress, setExportProgress] = useState<
     | null
     | {
-        format: 'json' | 'jsonl' | 'csv' | 'yolo' | 'bundle';
+        format: ExportFormat;
         loaded: number;
         total: number | null;
       }
   >(null);
+  const [splitCfg, setSplitCfg] = useState({ train: 70, val: 20, test: 10, seed: 42 });
+  const splitSum = splitCfg.train + splitCfg.val + splitCfg.test;
+  const FORMAT_LABEL: Record<ExportFormat, string> = {
+    json: 'JSON',
+    jsonl: 'JSONL',
+    csv: 'CSV',
+    yolo: 'YOLO-pose',
+    bundle: 'bundle',
+    yolo_split: 'YOLO-pose split',
+  };
   const exportAbortRef = useRef<AbortController | null>(null);
 
   async function handleExport() {
@@ -109,6 +117,7 @@ export default function ProjectDetailPage() {
       await downloadExport(projectId, fmt, {
         signal: controller.signal,
         onProgress: (p) => setExportProgress({ format: fmt, loaded: p.loaded, total: p.total }),
+        split: fmt === 'yolo_split' ? splitCfg : undefined,
       });
     } catch (err) {
       if (!axios.isCancel(err)) {
@@ -481,6 +490,11 @@ export default function ProjectDetailPage() {
                     ? ([
                         { v: 'yolo', label: 'YOLO-pose (ZIP)', hint: 'Ultralytics, COCO 17 kp' },
                         {
+                          v: 'yolo_split',
+                          label: 'YOLO-pose split (ZIP)',
+                          hint: 'train / valid / test, seeded',
+                        },
+                        {
                           v: 'bundle',
                           label: 'Full bundle (ZIP)',
                           hint: 'annotations.json + all source images',
@@ -509,9 +523,53 @@ export default function ProjectDetailPage() {
                   </span>
                 </label>
               ))}
+              {exportFormat === 'yolo_split' && (
+                <div className="border-t pt-2 mt-1 space-y-2">
+                  <div className="grid grid-cols-3 gap-2">
+                    {(['train', 'val', 'test'] as const).map((k) => (
+                      <label key={k} className="text-xs text-slate-600">
+                        <span className="block mb-0.5 capitalize">
+                          {k === 'val' ? 'valid' : k} %
+                        </span>
+                        <input
+                          type="number"
+                          min={0}
+                          max={100}
+                          value={splitCfg[k]}
+                          onChange={(e) =>
+                            setSplitCfg((c) => ({
+                              ...c,
+                              [k]: Number(e.target.value),
+                            }))
+                          }
+                          className="w-full border rounded px-1.5 py-1 text-sm"
+                        />
+                      </label>
+                    ))}
+                  </div>
+                  <label className="text-xs text-slate-600 block">
+                    <span className="block mb-0.5">Seed</span>
+                    <input
+                      type="number"
+                      value={splitCfg.seed}
+                      onChange={(e) =>
+                        setSplitCfg((c) => ({ ...c, seed: Number(e.target.value) }))
+                      }
+                      className="w-full border rounded px-1.5 py-1 text-sm"
+                    />
+                  </label>
+                  <p
+                    className={`text-xs ${
+                      splitSum === 100 ? 'text-slate-500' : 'text-red-600'
+                    }`}
+                  >
+                    Sum: {splitSum}% {splitSum === 100 ? '' : '(must be 100)'}
+                  </p>
+                </div>
+              )}
               <button
                 onClick={handleExport}
-                disabled={!!exportProgress}
+                disabled={!!exportProgress || (exportFormat === 'yolo_split' && splitSum !== 100)}
                 className="w-full bg-blue-600 text-white text-sm rounded px-3 py-1.5 hover:bg-blue-700 disabled:bg-slate-300"
               >
                 {exportProgress ? 'Downloading…' : 'Download'}
@@ -2244,7 +2302,7 @@ export default function ProjectDetailPage() {
         >
           <div className="flex items-center justify-between">
             <span className="text-sm font-medium">
-              Exporting {exportProgress.format.toUpperCase()}…
+              Exporting {FORMAT_LABEL[exportProgress.format]}…
             </span>
             <button
               onClick={() => exportAbortRef.current?.abort()}
