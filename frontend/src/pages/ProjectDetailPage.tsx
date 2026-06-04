@@ -25,7 +25,7 @@ import { listUsers } from '@/api/users';
 import { deleteVideo, importCocoPose, listVideos, reassignVideo, uploadVideo } from '@/api/videos';
 import type { CocoImportResult, ResizeMode } from '@/api/videos';
 import { downloadExport, type ExportFormat } from '@/lib/download';
-import { FILES_BASE } from '@/lib/env';
+import { frameUrl } from '@/lib/frameUrl';
 import { useConfirm } from '@/components/ui/ConfirmDialog';
 
 const FORMAT_LABEL: Record<ExportFormat, string> = {
@@ -305,10 +305,19 @@ export default function ProjectDetailPage() {
 
   // Outlier finder: lazy query, only fires while the modal is open. Soft
   // signal — the user picks each suspect to review or dismiss manually.
+  // Scope follows the on-screen items filters (video + annotator) so the
+  // scan only covers the frames you're looking at; with both filters clear
+  // it scans every annotated item. Filters are in the queryKey so changing
+  // them re-scans while the modal is open.
   const [showOutliers, setShowOutliers] = useState(false);
+  const outlierScope = {
+    sourceVideo: sourceFilter || undefined,
+    assignedTo:
+      assigneeFilter === '' ? undefined : (assigneeFilter as number | 'unassigned'),
+  };
   const outliersQ = useQuery({
-    queryKey: ['outliers', projectId],
-    queryFn: () => findOutliers(projectId),
+    queryKey: ['outliers', projectId, sourceFilter, assigneeFilter],
+    queryFn: () => findOutliers(projectId, outlierScope),
     enabled: showOutliers,
     staleTime: 30_000,
   });
@@ -335,9 +344,10 @@ export default function ProjectDetailPage() {
   const videoThumbs = useMemo(() => {
     const best = new Map<string, { idx: number; url: string }>();
     for (const i of items) {
-      const sv = (i.payload as { source_video?: string }).source_video;
-      const fi = (i.payload as { frame_index?: number }).frame_index;
-      const url = (i.payload as { image_url?: string }).image_url;
+      const p = i.payload as { source_video?: string; frame_index?: number; image_url?: string; frame_rev?: number };
+      const sv = p.source_video;
+      const fi = p.frame_index;
+      const url = frameUrl(p);
       if (!sv || !url || typeof fi !== 'number') continue;
       const cur = best.get(sv);
       if (!cur || fi < cur.idx) best.set(sv, { idx: fi, url });
@@ -437,6 +447,35 @@ export default function ProjectDetailPage() {
     if (uid == null) return null;
     return userNameById.get(uid) ?? `user #${uid}`;
   }
+
+  // Outlier scan coverage given the on-screen scope — mirrors the backend
+  // filter (done/reviewed within the selected video + annotator).
+  const outlierScopedCount = items.filter((i) => {
+    if (i.status !== 'done' && i.status !== 'reviewed') return false;
+    if (outlierScope.sourceVideo) {
+      if ((i.payload as { source_video?: string }).source_video !== outlierScope.sourceVideo)
+        return false;
+    }
+    if (outlierScope.assignedTo === 'unassigned') {
+      if (i.assigned_to != null) return false;
+    } else if (typeof outlierScope.assignedTo === 'number') {
+      if (i.assigned_to !== outlierScope.assignedTo) return false;
+    }
+    return true;
+  }).length;
+  const outlierScopeLabel =
+    !outlierScope.sourceVideo && outlierScope.assignedTo === undefined
+      ? 'all videos and annotators'
+      : [
+          outlierScope.sourceVideo,
+          outlierScope.assignedTo === 'unassigned'
+            ? 'unassigned'
+            : typeof outlierScope.assignedTo === 'number'
+              ? annotatorLabel(outlierScope.assignedTo)
+              : null,
+        ]
+          .filter(Boolean)
+          .join(' · ');
 
   if (projectQ.isLoading) return <p className="p-6">Loading…</p>;
   if (!projectQ.data) return <p className="p-6">Project not found.</p>;
@@ -1378,7 +1417,7 @@ export default function ProjectDetailPage() {
                   <div className="relative">
                     {thumb ? (
                       <img
-                        src={`${FILES_BASE}${thumb}`}
+                        src={thumb}
                         className="w-full aspect-video object-cover bg-slate-100"
                         alt=""
                         loading="lazy"
@@ -1832,7 +1871,7 @@ export default function ProjectDetailPage() {
         ) : itemView === 'grid' ? (
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
             {filteredItems.slice(0, itemsVisible).map((i) => {
-              const imgUrl = (i.payload as { image_url?: string }).image_url;
+              const imgUrl = frameUrl(i.payload as { image_url?: string; frame_rev?: number });
               const sv = (i.payload as { source_video?: string }).source_video;
               const fi = (i.payload as { frame_index?: number }).frame_index;
               const w = (i.payload as { width?: number }).width;
@@ -1847,7 +1886,7 @@ export default function ProjectDetailPage() {
                 >
                   {imgUrl ? (
                     <img
-                      src={`${FILES_BASE}${imgUrl}`}
+                      src={imgUrl ?? ''}
                       className="w-full aspect-square object-cover bg-slate-100"
                       alt=""
                       loading="lazy"
@@ -2021,9 +2060,9 @@ export default function ProjectDetailPage() {
                   to={`/projects/${projectId}/annotate/${i.id}`}
                   className="flex items-center gap-3 flex-1 min-w-0 hover:underline"
                 >
-                  {(i.payload as { image_url?: string }).image_url && (
+                  {frameUrl(i.payload as { image_url?: string; frame_rev?: number }) && (
                     <img
-                      src={`${FILES_BASE}${(i.payload as { image_url: string }).image_url}`}
+                      src={frameUrl(i.payload as { image_url?: string; frame_rev?: number }) ?? ''}
                       className="w-12 h-12 object-cover rounded border"
                       alt=""
                       loading="lazy"
@@ -2225,6 +2264,9 @@ export default function ProjectDetailPage() {
                   Suggestions only — open each one to verify and correct, or
                   ignore. False positives can happen on non-supine poses.
                 </p>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  Scope: {outlierScopeLabel} ({outlierScopedCount} annotated)
+                </p>
               </div>
               <button
                 type="button"
@@ -2238,7 +2280,8 @@ export default function ProjectDetailPage() {
             <div className="overflow-y-auto p-4">
               {outliersQ.isLoading && (
                 <p className="text-sm text-slate-500 py-6 text-center">
-                  Scanning {items.length} items…
+                  Scanning {outlierScopedCount} annotated item
+                  {outlierScopedCount === 1 ? '' : 's'}…
                 </p>
               )}
               {outliersQ.isError && (
@@ -2249,8 +2292,8 @@ export default function ProjectDetailPage() {
               {outliersQ.data && outliersQ.data.items.length === 0 && (
                 <p className="text-sm text-emerald-700 py-6 text-center">
                   ✓ No suspect items found. Heuristic ran on{' '}
-                  {items.filter((i) => i.status === 'done' || i.status === 'reviewed').length}{' '}
-                  annotated items.
+                  {outlierScopedCount} annotated item
+                  {outlierScopedCount === 1 ? '' : 's'} ({outlierScopeLabel}).
                 </p>
               )}
               {outliersQ.data && outliersQ.data.items.length > 0 && (
@@ -2270,7 +2313,7 @@ export default function ProjectDetailPage() {
                       <li key={it.id} className="py-3 flex items-start gap-3">
                         {sv.image_url && (
                           <img
-                            src={`${FILES_BASE}${sv.image_url}`}
+                            src={frameUrl(sv as { image_url?: string; frame_rev?: number }) ?? ''}
                             className="w-16 h-16 object-cover rounded border shrink-0 bg-slate-100"
                             alt=""
                             loading="lazy"

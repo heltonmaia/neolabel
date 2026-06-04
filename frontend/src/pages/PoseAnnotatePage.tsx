@@ -4,7 +4,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { me } from '@/api/auth';
 import { getProject } from '@/api/projects';
 import { deleteItem, getItem, listAllItems, reviewItem, saveAnnotation, type Item } from '@/api/items';
-import { FILES_BASE } from '@/lib/env';
+import { frameUrl } from '@/lib/frameUrl';
 import BabyAvatar from '@/components/BabyAvatar';
 import RodentAvatar from '@/components/RodentAvatar';
 import { useConfirm } from '@/components/ui/ConfirmDialog';
@@ -659,9 +659,9 @@ export default function PoseAnnotatePage() {
     image_url?: string;
     source_video?: string;
     frame_index?: number;
+    frame_rev?: number;
   };
-  const imageUrl = payload.image_url;
-  const fullUrl = imageUrl ? `${FILES_BASE}${imageUrl}` : null;
+  const fullUrl = frameUrl(payload as { image_url?: string; frame_rev?: number });
 
   // A keypoint is "addressed" (counts toward completion) if it's been placed
   // OR explicitly marked out of frame.
