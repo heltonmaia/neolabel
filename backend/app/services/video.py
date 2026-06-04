@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import re
 import subprocess
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import BinaryIO
@@ -78,6 +80,98 @@ def rotate_keypoints(
     if degrees in (90, 270):
         return out, h, w
     return out, w, h
+
+
+def _jpeg_size_for_test(path: Path) -> tuple[int, int] | None:
+    """Public alias of item._jpeg_size, for tests asserting rotated dims."""
+    from app.services.item import _jpeg_size
+    return _jpeg_size(path)
+
+
+def rotate_video(project_id: int, source_video: str, degrees: int) -> int:
+    """Rotate every extracted frame of `source_video` in place and transform
+    the existing keypoint annotations to match. `90` = clockwise.
+
+    Two-phase commit: render all frames into a temp dir first; only if every
+    frame succeeds do we replace the originals and persist metadata, so a
+    mid-way ffmpeg failure leaves the data untouched.
+
+    Returns the number of frames rotated (0 if the video has no frames).
+    Raises ValueError on bad `degrees`.
+    """
+    if degrees not in (90, 180, 270):
+        raise ValueError("degrees must be 90, 180, or 270")
+
+    items = [
+        i for i in storage.list_items(project_id)
+        if (i.get("payload") or {}).get("source_video") == source_video
+    ]
+    if not items:
+        return 0
+
+    pdir = storage.project_dir(project_id)
+    frames_dir = pdir / "frames" / source_video
+    frames = sorted(frames_dir.glob("f_*.jpg"))
+    if not frames:
+        return 0
+
+    transpose = _rotation_filter(degrees)  # never None for 90/180/270
+
+    # Phase A — compute new annotation values in memory (cannot fail).
+    new_anns: list[dict] = []
+    for it in items:
+        ann = storage.find_any_annotation_for_item(project_id, it["id"])
+        if not ann:
+            continue
+        value = ann.get("value") or {}
+        kps = value.get("keypoints")
+        if not kps:
+            continue
+        p = it.get("payload") or {}
+        w = p.get("width") or _TARGET_SIZE
+        h = p.get("height") or _TARGET_SIZE
+        new_kps, _, _ = rotate_keypoints(kps, w, h, degrees)
+        new_anns.append({**ann, "value": {**value, "keypoints": new_kps}})
+
+    # Phase B — render all frames into a temp dir under frames/ (same FS so
+    # os.replace is atomic). image2 demuxer reads the f_%06d.jpg sequence.
+    with tempfile.TemporaryDirectory(dir=str(frames_dir.parent)) as tmp:
+        cmd = [
+            "ffmpeg", "-y", "-loglevel", "warning",
+            "-start_number", "1",
+            "-i", str(frames_dir / "f_%06d.jpg"),
+            "-vf", transpose, "-q:v", "2",
+            str(Path(tmp) / "f_%06d.jpg"),
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        if result.returncode != 0:
+            raise RuntimeError(
+                f"ffmpeg failed: {result.stderr.strip() or result.stdout.strip()}"
+            )
+        rotated = sorted(Path(tmp).glob("f_*.jpg"))
+        if len(rotated) != len(frames):
+            raise RuntimeError(
+                f"rotation produced {len(rotated)} frames, expected {len(frames)}"
+            )
+        # Phase C — commit frame files (fast renames).
+        for src in rotated:
+            os.replace(str(src), str(frames_dir / src.name))
+
+    # Phase D — persist payload + annotations.
+    swap = degrees in (90, 270)
+    for it in items:
+        p = it.get("payload") or {}
+        if swap:
+            w = p.get("width") or _TARGET_SIZE
+            h = p.get("height") or _TARGET_SIZE
+            p["width"], p["height"] = h, w
+        p["frame_rev"] = int(p.get("frame_rev", 0)) + 1
+        it["payload"] = p
+        storage.save_item(it)
+    for ann in new_anns:
+        storage.save_annotation(project_id, ann)
+
+    return len(items)
 
 
 def _resize_filter(mode: str) -> str:
