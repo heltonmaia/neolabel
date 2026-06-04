@@ -22,7 +22,8 @@ import {
   type OutlierItem,
 } from '@/api/items';
 import { listUsers } from '@/api/users';
-import { deleteVideo, importCocoPose, listVideos, reassignVideo, uploadVideo } from '@/api/videos';
+import { deleteVideo, importCocoPose, listVideos, reassignVideo, rotateVideo, uploadVideo } from '@/api/videos';
+import { VideoRotateButtons } from '@/features/projects/VideoRotateButtons';
 import type { CocoImportResult, ResizeMode } from '@/api/videos';
 import { downloadExport, type ExportFormat } from '@/lib/download';
 import { frameUrl } from '@/lib/frameUrl';
@@ -325,6 +326,7 @@ export default function ProjectDetailPage() {
   // Bulk-approve every 'done' frame of one video. Tracks which video is in
   // flight so only that row's button shows the spinner.
   const [approvingVideo, setApprovingVideo] = useState<string | null>(null);
+  const [rotatingVideo, setRotatingVideo] = useState<string | null>(null);
   const approveAllMut = useMutation({
     mutationFn: (sourceVideo: string) => approveAllDone(projectId, sourceVideo),
     onMutate: (sourceVideo) => setApprovingVideo(sourceVideo),
@@ -333,6 +335,18 @@ export default function ProjectDetailPage() {
       qc.invalidateQueries({ queryKey: ['items', projectId] });
       qc.invalidateQueries({ queryKey: ['videos', projectId] });
     },
+  });
+
+  const rotateMut = useMutation({
+    mutationFn: ({ source, degrees }: { source: string; degrees: 90 | 180 | 270 }) =>
+      rotateVideo(projectId, source, degrees),
+    onMutate: ({ source }) => setRotatingVideo(source),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['items', projectId] });
+      qc.invalidateQueries({ queryKey: ['videos', projectId] });
+    },
+    onError: () => alert('Rotation failed — check the backend logs.'),
+    onSettled: () => setRotatingVideo(null),
   });
 
   const items = itemsQ.data?.items ?? [];
@@ -1495,6 +1509,18 @@ export default function ProjectDetailPage() {
                         )}
                       </button>
                     )}
+                    <VideoRotateButtons
+                      inFlight={rotatingVideo === v.source_video}
+                      disabled={rotateMut.isPending}
+                      onRotate={(degrees) =>
+                        confirmDialog.ask({
+                          title: 'Rotate video?',
+                          message: `Rotate all ${v.frames} frames of "${v.source_video}" by ${degrees}° and adjust their annotations. The frames are re-rendered.`,
+                          confirmLabel: 'Rotate',
+                          onConfirm: () => rotateMut.mutate({ source: v.source_video, degrees }),
+                        })
+                      }
+                    />
                     <button
                       onClick={() =>
                         confirmDialog.ask({
@@ -1625,6 +1651,18 @@ export default function ProjectDetailPage() {
                           </button>
                         );
                       })()}
+                    <VideoRotateButtons
+                      inFlight={rotatingVideo === v.source_video}
+                      disabled={rotateMut.isPending}
+                      onRotate={(degrees) =>
+                        confirmDialog.ask({
+                          title: 'Rotate video?',
+                          message: `Rotate all ${v.frames} frames of "${v.source_video}" by ${degrees}° and adjust their annotations. The frames are re-rendered.`,
+                          confirmLabel: 'Rotate',
+                          onConfirm: () => rotateMut.mutate({ source: v.source_video, degrees }),
+                        })
+                      }
+                    />
                     <button
                       onClick={() =>
                         confirmDialog.ask({
