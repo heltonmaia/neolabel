@@ -184,3 +184,71 @@ def test_rotate_video_ffmpeg_failure_leaves_originals_untouched(monkeypatch):
     assert (item["payload"]["width"], item["payload"]["height"]) == (320, 240)
     ann = storage.find_any_annotation_for_item(pid, iid)
     assert ann["value"]["keypoints"] == [[50, 60, 2]]
+
+
+@pytest.fixture
+def pose_project(client, admin_headers) -> dict:
+    r = client.post(
+        "/api/v1/projects",
+        json={"name": "rot-http", "type": "pose_detection"},
+        headers=admin_headers,
+    )
+    return r.json()
+
+
+def _seed_video_frame(pid: int, video: str, w: int, h: int) -> int:
+    pdir = storage.project_dir(pid)
+    _make_frame(pdir, video, w, h)
+    iid = storage.next_id("items")
+    storage.save_item({
+        "id": iid, "project_id": pid,
+        "payload": {"image_url": f"/files/projects/{pid}/frames/{video}/f_000001.jpg",
+                    "source_video": video, "frame_index": 1, "width": w, "height": h},
+        "status": "done", "created_at": "2026-06-04T00:00:00Z", "assigned_to": 1,
+    })
+    return iid
+
+
+def test_rotate_endpoint_admin_ok(client, admin_headers, pose_project):
+    pid = pose_project["id"]
+    _seed_video_frame(pid, "clip", 320, 240)
+    r = client.post(
+        f"/api/v1/projects/{pid}/videos/clip/rotate",
+        json={"degrees": 90}, headers=admin_headers,
+    )
+    assert r.status_code == 200, r.text
+    assert r.json() == {"rotated": 1, "degrees": 90}
+
+
+def test_rotate_endpoint_404_when_no_frames(client, admin_headers, pose_project):
+    pid = pose_project["id"]
+    r = client.post(
+        f"/api/v1/projects/{pid}/videos/ghost/rotate",
+        json={"degrees": 90}, headers=admin_headers,
+    )
+    assert r.status_code == 404
+
+
+def test_rotate_endpoint_422_bad_degrees(client, admin_headers, pose_project):
+    pid = pose_project["id"]
+    _seed_video_frame(pid, "clip", 320, 240)
+    r = client.post(
+        f"/api/v1/projects/{pid}/videos/clip/rotate",
+        json={"degrees": 45}, headers=admin_headers,
+    )
+    assert r.status_code == 422
+
+
+def test_rotate_endpoint_forbidden_for_non_admin(client, auth_headers, admin_headers):
+    # Project owned by a non-admin; that owner still can't rotate (admin-only).
+    pid = client.post(
+        "/api/v1/projects",
+        json={"name": "owned", "type": "pose_detection"},
+        headers=auth_headers,
+    ).json()["id"]
+    _seed_video_frame(pid, "clip", 320, 240)
+    r = client.post(
+        f"/api/v1/projects/{pid}/videos/clip/rotate",
+        json={"degrees": 90}, headers=auth_headers,
+    )
+    assert r.status_code == 403

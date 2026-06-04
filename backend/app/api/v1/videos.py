@@ -1,7 +1,7 @@
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile, status
 
 from app.core.deps import AdminUser
-from app.schemas.item import ReassignRequest
+from app.schemas.item import ReassignRequest, RotateRequest
 from app.services import import_coco as import_coco_service
 from app.services import item as item_service
 from app.services import project as project_service
@@ -122,6 +122,28 @@ def reassign_video(
     if count == 0:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Video not found in project")
     return {"reassigned": count, "assignee_id": data.assignee_id}
+
+
+@router.post(
+    "/projects/{project_id}/videos/{source_video}/rotate",
+    tags=["videos"],
+)
+def rotate_video(
+    project_id: int,
+    source_video: str,
+    data: RotateRequest,
+    current_user: AdminUser,
+) -> dict:
+    _require_project(project_id)
+    if data.degrees not in (90, 180, 270):
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            "degrees must be 90, 180, or 270",
+        )
+    count = video_service.rotate_video(project_id, source_video, data.degrees)
+    if count == 0:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Video not found in project")
+    return {"rotated": count, "degrees": data.degrees}
 
 
 @router.delete(

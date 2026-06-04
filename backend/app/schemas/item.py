@@ -35,6 +35,10 @@ class ReassignRequest(BaseModel):
     assignee_id: int | None = None
 
 
+class RotateRequest(BaseModel):
+    degrees: int  # 90 (clockwise), 180, or 270 (counter-clockwise)
+
+
 class ItemReviewIn(BaseModel):
     """Curation actions:
       - approve   -> status='reviewed', clears any prior note.
