@@ -52,6 +52,34 @@ def _rotation_filter(rotation: int) -> str | None:
     }[rotation]
 
 
+def rotate_keypoints(
+    kps: list, w: int, h: int, degrees: int
+) -> tuple[list, int, int]:
+    """Transform keypoints for an image rotation. `90` is clockwise, `270`
+    counter-clockwise (matches the upload `rotation` convention).
+
+    Returns (new_kps, new_w, new_h). Keypoints with visibility 0 (the
+    `[0,0,0]` "unset" convention) are passed through unchanged so they
+    keep reading as unset. Width/height swap on 90/270.
+    """
+    out: list = []
+    for kp in kps:
+        if len(kp) < 3 or kp[2] == 0:
+            out.append(list(kp))
+            continue
+        x, y, v = kp[0], kp[1], kp[2]
+        if degrees == 90:
+            nx, ny = h - y, x
+        elif degrees == 270:
+            nx, ny = y, w - x
+        else:  # 180
+            nx, ny = w - x, h - y
+        out.append([nx, ny, v])
+    if degrees in (90, 270):
+        return out, h, w
+    return out, w, h
+
+
 def _resize_filter(mode: str) -> str:
     if mode == "stretch":
         return f"scale={_TARGET_SIZE}:{_TARGET_SIZE}"
