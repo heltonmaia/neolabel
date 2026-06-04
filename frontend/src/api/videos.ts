@@ -84,3 +84,15 @@ export async function deleteVideo(projectId: number, sourceVideo: string) {
   );
   return data;
 }
+
+export async function rotateVideo(
+  projectId: number,
+  sourceVideo: string,
+  degrees: 90 | 180 | 270,
+) {
+  const { data } = await api.post<{ rotated: number; degrees: number }>(
+    `/projects/${projectId}/videos/${encodeURIComponent(sourceVideo)}/rotate`,
+    { degrees },
+  );
+  return data;
+}
