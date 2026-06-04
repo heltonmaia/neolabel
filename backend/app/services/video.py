@@ -82,19 +82,16 @@ def rotate_keypoints(
     return out, w, h
 
 
-def _jpeg_size_for_test(path: Path) -> tuple[int, int] | None:
-    """Public alias of item._jpeg_size, for tests asserting rotated dims."""
-    from app.services.item import _jpeg_size
-    return _jpeg_size(path)
-
-
 def rotate_video(project_id: int, source_video: str, degrees: int) -> int:
     """Rotate every extracted frame of `source_video` in place and transform
     the existing keypoint annotations to match. `90` = clockwise.
 
-    Two-phase commit: render all frames into a temp dir first; only if every
-    frame succeeds do we replace the originals and persist metadata, so a
-    mid-way ffmpeg failure leaves the data untouched.
+    Frames are rendered into a sibling temp dir first; the originals are only
+    replaced if every frame rendered successfully, so a failed ffmpeg run leaves
+    the frames untouched. Item payload and annotation writes happen after the
+    frame commit and are not transactional — a failure mid-write could leave
+    some items updated and others not (the storage layer has no multi-file
+    transaction).
 
     Returns the number of frames rotated (0 if the video has no frames).
     Raises ValueError on bad `degrees`.
@@ -125,6 +122,8 @@ def rotate_video(project_id: int, source_video: str, degrees: int) -> int:
             continue
         value = ann.get("value") or {}
         kps = value.get("keypoints")
+        # No keypoints (unannotated / in-progress / non-pose value): the frame
+        # is still rotated below, but there's nothing to transform.
         if not kps:
             continue
         p = it.get("payload") or {}
@@ -155,7 +154,7 @@ def rotate_video(project_id: int, source_video: str, degrees: int) -> int:
             )
         # Phase C — commit frame files (fast renames).
         for src in rotated:
-            os.replace(str(src), str(frames_dir / src.name))
+            os.replace(src, frames_dir / src.name)
 
     # Phase D — persist payload + annotations.
     swap = degrees in (90, 270)
@@ -171,7 +170,7 @@ def rotate_video(project_id: int, source_video: str, degrees: int) -> int:
     for ann in new_anns:
         storage.save_annotation(project_id, ann)
 
-    return len(items)
+    return len(frames)
 
 
 def _resize_filter(mode: str) -> str:
