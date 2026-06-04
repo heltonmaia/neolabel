@@ -110,9 +110,21 @@ export interface OutlierItem extends Item {
   outliers: Outlier[];
 }
 
-export async function findOutliers(projectId: number) {
+export interface OutlierScope {
+  sourceVideo?: string;
+  // A specific annotator id, or 'unassigned' to scan only unassigned items.
+  // Omit both to scan every annotated item.
+  assignedTo?: number | 'unassigned';
+}
+
+export async function findOutliers(projectId: number, scope: OutlierScope = {}) {
+  const params: Record<string, string | number | boolean> = {};
+  if (scope.sourceVideo) params.source_video = scope.sourceVideo;
+  if (scope.assignedTo === 'unassigned') params.unassigned = true;
+  else if (typeof scope.assignedTo === 'number') params.assigned_to = scope.assignedTo;
   const { data } = await api.get<{ items: OutlierItem[]; checks_run: string[] }>(
     `/projects/${projectId}/items/outliers`,
+    { params },
   );
   return data;
 }

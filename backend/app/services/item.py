@@ -365,15 +365,34 @@ COCO_KP_NAMES: list[tuple[int, str]] = [
 ]
 
 
-def find_outliers(project_id: int) -> list[dict]:
+def find_outliers(
+    project_id: int,
+    source_video: str | None = None,
+    assigned_to: int | None = None,
+    unassigned: bool = False,
+) -> list[dict]:
     """Run all heuristics over every annotated item; return one entry per
     item that has at least one issue. Soft signal — this never modifies
     anything; the caller (admin/owner UI) picks each one to review.
+
+    Optional filters mirror the items list UI so the scan can be scoped to
+    the frames the user is looking at: a specific `source_video`, a specific
+    `assigned_to` annotator, or only `unassigned` items. With no filters set,
+    every annotated item is scanned. `unassigned=True` takes precedence over
+    `assigned_to`.
     """
     out: list[dict] = []
     for item in storage.list_items(project_id):
         if item.get("status") not in (ItemStatus.done.value, ItemStatus.reviewed.value):
             continue
+        if unassigned:
+            if item.get("assigned_to") is not None:
+                continue
+        elif assigned_to is not None and item.get("assigned_to") != assigned_to:
+            continue
+        if source_video is not None:
+            if (item.get("payload") or {}).get("source_video") != source_video:
+                continue
         ann = storage.find_any_annotation_for_item(project_id, item["id"])
         if not ann:
             continue

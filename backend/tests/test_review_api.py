@@ -586,6 +586,98 @@ def test_outliers_requires_owner_or_admin(
     assert r.status_code == 404
 
 
+def _seed_two_mirror_videos(client, headers, pid):
+    """Two source videos, one mirrored (flag-worthy) item each. Returns the
+    item dicts keyed by source_video."""
+    client.post(
+        f"/api/v1/projects/{pid}/items/bulk",
+        json={
+            "items": [
+                {"payload": {"image_url": "/v1.jpg", "source_video": "v1.mp4"}},
+                {"payload": {"image_url": "/v2.jpg", "source_video": "v2.mp4"}},
+            ]
+        },
+        headers=headers,
+    )
+    items = client.get(
+        f"/api/v1/projects/{pid}/items", headers=headers
+    ).json()["items"]
+    by_video = {i["payload"]["source_video"]: i for i in items}
+    for it in items:
+        client.put(
+            f"/api/v1/items/{it['id']}/annotation",
+            json={"value": {"keypoints": _mirror_kps()}},
+            headers=headers,
+        )
+    return by_video
+
+
+def test_outliers_no_filter_scans_all_videos(client, auth_headers, project):
+    pid = project["id"]
+    by_video = _seed_two_mirror_videos(client, auth_headers, pid)
+    flagged = client.get(
+        f"/api/v1/projects/{pid}/items/outliers", headers=auth_headers
+    ).json()["items"]
+    flagged_ids = {it["id"] for it in flagged}
+    assert by_video["v1.mp4"]["id"] in flagged_ids
+    assert by_video["v2.mp4"]["id"] in flagged_ids
+
+
+def test_outliers_filtered_by_source_video(client, auth_headers, project):
+    pid = project["id"]
+    by_video = _seed_two_mirror_videos(client, auth_headers, pid)
+    flagged = client.get(
+        f"/api/v1/projects/{pid}/items/outliers?source_video=v1.mp4",
+        headers=auth_headers,
+    ).json()["items"]
+    flagged_ids = {it["id"] for it in flagged}
+    assert flagged_ids == {by_video["v1.mp4"]["id"]}
+
+
+def test_outliers_filtered_by_assigned_to(
+    client, auth_headers, second_user_headers, admin_headers, project
+):
+    pid = project["id"]
+    by_video = _seed_two_mirror_videos(client, auth_headers, pid)
+    # Reassign v1's frames to bob; learn his id from the reassigned item.
+    bob_id = client.get("/api/v1/auth/me", headers=second_user_headers).json()["id"]
+    r = client.patch(
+        f"/api/v1/projects/{pid}/videos/v1.mp4/assign",
+        json={"assignee_id": bob_id},
+        headers=admin_headers,
+    )
+    assert r.status_code == 200, r.text
+
+    flagged = client.get(
+        f"/api/v1/projects/{pid}/items/outliers?assigned_to={bob_id}",
+        headers=auth_headers,
+    ).json()["items"]
+    flagged_ids = {it["id"] for it in flagged}
+    assert flagged_ids == {by_video["v1.mp4"]["id"]}
+
+
+def test_outliers_filtered_unassigned(
+    client, auth_headers, second_user_headers, admin_headers, project
+):
+    pid = project["id"]
+    by_video = _seed_two_mirror_videos(client, auth_headers, pid)
+    bob_id = client.get("/api/v1/auth/me", headers=second_user_headers).json()["id"]
+    # v1 → bob, v2 stays unassigned.
+    r = client.patch(
+        f"/api/v1/projects/{pid}/videos/v1.mp4/assign",
+        json={"assignee_id": bob_id},
+        headers=admin_headers,
+    )
+    assert r.status_code == 200, r.text
+
+    flagged = client.get(
+        f"/api/v1/projects/{pid}/items/outliers?unassigned=true",
+        headers=auth_headers,
+    ).json()["items"]
+    flagged_ids = {it["id"] for it in flagged}
+    assert flagged_ids == {by_video["v2.mp4"]["id"]}
+
+
 def test_partial_save_after_send_back_keeps_note(client, auth_headers, project):
     """A partial save (still in_progress) shouldn't drop the note — annotator
     is mid-fix, the prompt should stay until they finish."""

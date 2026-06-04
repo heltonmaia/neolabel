@@ -153,13 +153,25 @@ def approve_all_done_items(
 
 
 @router.get("/projects/{project_id}/items/outliers", tags=["items"])
-def list_outliers(project_id: int, current_user: CurrentUser) -> dict:
+def list_outliers(
+    project_id: int,
+    current_user: CurrentUser,
+    source_video: str | None = Query(None),
+    assigned_to: int | None = Query(None),
+    unassigned: bool = Query(False),
+) -> dict:
     """Suggest items whose annotation looks suspicious — e.g. probable L/R
     swap. Soft signal, never modifies anything; admin/owner picks each one
     to review manually. False positives are expected on unusual poses
-    (subject prone or sideways), so the response is informational only."""
+    (subject prone or sideways), so the response is informational only.
+
+    Filters mirror the items list so the scan can be scoped to the frames on
+    screen (a `source_video`, an `assigned_to` annotator, or `unassigned`).
+    With none set, every annotated item is scanned."""
     _require_project_for_owner(project_id, current_user)
-    items = item_service.find_outliers(project_id)
+    items = item_service.find_outliers(
+        project_id, source_video, assigned_to, unassigned
+    )
     return {
         "items": items,
         "checks_run": ["lr_swap", "out_of_image", "impossible_anatomy"],
