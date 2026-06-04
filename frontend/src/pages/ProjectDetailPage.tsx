@@ -344,6 +344,8 @@ export default function ProjectDetailPage() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['items', projectId] });
       qc.invalidateQueries({ queryKey: ['videos', projectId] });
+      // Also refresh any open single-item view so it picks up the new frame_rev.
+      qc.invalidateQueries({ queryKey: ['item'] });
     },
     onError: () => alert('Rotation failed — check the backend logs.'),
     onSettled: () => setRotatingVideo(null),

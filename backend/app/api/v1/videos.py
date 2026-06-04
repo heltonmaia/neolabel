@@ -140,7 +140,11 @@ def rotate_video(
             status.HTTP_422_UNPROCESSABLE_ENTITY,
             "degrees must be 90, 180, or 270",
         )
-    count = video_service.rotate_video(project_id, source_video, data.degrees)
+    try:
+        count = video_service.rotate_video(project_id, source_video, data.degrees)
+    except RuntimeError as e:
+        # ffmpeg failure — surface the message like upload_video does.
+        raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, str(e))
     if count == 0:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Video not found in project")
     return {"rotated": count, "degrees": data.degrees}
