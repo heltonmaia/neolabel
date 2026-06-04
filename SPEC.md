@@ -225,6 +225,15 @@ user does not own returns **404** (to avoid leaking existence), with
 - `PATCH  /projects/{id}/videos/{source}/assign` — admin-only;
   reassigns every frame of the video. Body `{"assignee_id": null}`
   clears the assignment.
+- `POST   /projects/{id}/videos/{source}/rotate` — admin-only; rotates
+  every extracted frame of the video in place and transforms the
+  existing keypoint annotations to match. Body `{"degrees": 90|180|270}`
+  where `90` is clockwise and `270` counter-clockwise (same convention
+  as upload `rotation`). Frame files are re-rendered with FFmpeg
+  `transpose`; each item's `payload.frame_rev` is bumped (cache-busting)
+  and `width`/`height` are swapped on 90/270. Returns
+  `{"rotated": <frame count>, "degrees": <int>}`. 404 if the video has
+  no frames in the project; 422 if `degrees` is not 90/180/270.
 - `DELETE /projects/{id}/videos/{source}` — admin-only; deletes
   items, annotations, frames, and the original file
 
