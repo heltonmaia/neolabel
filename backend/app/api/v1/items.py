@@ -249,6 +249,7 @@ def export_project(
     test: int = Query(10, ge=0, le=100),
     seed: int = Query(42),
     exclude_occluded: bool = Query(False),
+    video_index: bool = Query(False),
 ) -> Response:
     project = _require_project_for_owner(project_id, current_user)
 
@@ -264,6 +265,17 @@ def export_project(
             )
         if format == "coco":
             data = coco_service.build_coco_export(project_id)
+            if video_index:
+                csv_text = item_service.build_video_index_csv(
+                    coco_service.video_index_pairs(project_id)
+                )
+                stream, size = item_service.zip_bytes(
+                    [
+                        (f"project_{project_id}_coco.json", data),
+                        ("video_index.csv", csv_text.encode("utf-8")),
+                    ]
+                )
+                return _stream_zip(stream, size, f"project_{project_id}_coco.zip")
             return Response(
                 content=data,
                 media_type="application/json",
@@ -283,7 +295,9 @@ def export_project(
     # Every other format always includes every item (pending rows carry
     # annotation: null). Downstream filtering is on the caller.
     if format == "yolo":
-        stream, size = item_service.build_yolo_export(project_id, exclude_occluded)
+        stream, size = item_service.build_yolo_export(
+            project_id, exclude_occluded, video_index=video_index
+        )
         return _stream_zip(stream, size, f"project_{project_id}_yolo.zip")
 
     if format == "yolo_split":
@@ -298,8 +312,13 @@ def export_project(
         return _stream_zip(stream, size, f"project_{project_id}_yolo_split.zip")
 
     if format == "bundle":
-        stream, size = item_service.build_bundle_export(project_id)
+        stream, size = item_service.build_bundle_export(project_id, video_index=video_index)
         return _stream_zip(stream, size, f"project_{project_id}_bundle.zip")
+
+    if video_index:
+        # the text formats have no container, so wrap [native file + manifest]
+        stream, size = item_service.build_text_export_zip(project_id, format)
+        return _stream_zip(stream, size, f"project_{project_id}_{format}.zip")
 
     if format == "json":
         return StreamingResponse(

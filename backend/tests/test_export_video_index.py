@@ -291,3 +291,104 @@ def test_coco_video_index_pairs(client, auth_headers, pose_project):
         "num_frames": "2",
     }
     assert rows["vid_b"]["num_frames"] == "1"
+
+
+def test_export_yolo_endpoint_video_index(client, auth_headers, pose_project):
+    pid = pose_project["id"]
+    _seed_frames(client, auth_headers, pid, "vid_a", [0, 1])
+    _annotate(client, auth_headers, _all_items(client, auth_headers, pid))
+
+    r = client.get(
+        f"/api/v1/projects/{pid}/export?format=yolo&video_index=true", headers=auth_headers
+    )
+    assert r.status_code == 200
+    assert "application/zip" in r.headers["content-type"]
+    assert f"project_{pid}_yolo.zip" in r.headers["content-disposition"]
+    zf = zipfile.ZipFile(io.BytesIO(r.content))
+    assert "video_index.csv" in zf.namelist()
+    assert _index_rows(zf)["vid_a"]["num_frames"] == "2"
+
+
+def test_export_json_endpoint_becomes_zip(client, auth_headers, pose_project):
+    pid = pose_project["id"]
+    _seed_frames(client, auth_headers, pid, "vid_a", [0])
+    _annotate(client, auth_headers, _all_items(client, auth_headers, pid))
+
+    r = client.get(
+        f"/api/v1/projects/{pid}/export?format=json&video_index=true", headers=auth_headers
+    )
+    assert r.status_code == 200
+    assert "application/zip" in r.headers["content-type"]
+    assert f"project_{pid}_json.zip" in r.headers["content-disposition"]
+    names = zipfile.ZipFile(io.BytesIO(r.content)).namelist()
+    assert set(names) == {f"project_{pid}.json", "video_index.csv"}
+
+
+def test_export_csv_endpoint_becomes_zip(client, auth_headers, pose_project):
+    pid = pose_project["id"]
+    _seed_frames(client, auth_headers, pid, "vid_a", [0])
+    _annotate(client, auth_headers, _all_items(client, auth_headers, pid))
+
+    r = client.get(
+        f"/api/v1/projects/{pid}/export?format=csv&video_index=true", headers=auth_headers
+    )
+    assert "application/zip" in r.headers["content-type"]
+    assert f"project_{pid}_csv.zip" in r.headers["content-disposition"]
+
+
+def test_export_coco_endpoint_video_index(client, auth_headers, pose_project):
+    pid = pose_project["id"]
+    _seed_frames(client, auth_headers, pid, "vid_a", [0, 1])
+    _annotate(client, auth_headers, _all_items(client, auth_headers, pid))
+
+    r = client.get(
+        f"/api/v1/projects/{pid}/export?format=coco&video_index=true", headers=auth_headers
+    )
+    assert "application/zip" in r.headers["content-type"]
+    assert f"project_{pid}_coco.zip" in r.headers["content-disposition"]
+    zf = zipfile.ZipFile(io.BytesIO(r.content))
+    assert set(zf.namelist()) == {f"project_{pid}_coco.json", "video_index.csv"}
+
+
+def test_export_json_no_flag_stays_plain(client, auth_headers, pose_project):
+    pid = pose_project["id"]
+    _seed_frames(client, auth_headers, pid, "vid_a", [0])
+    _annotate(client, auth_headers, _all_items(client, auth_headers, pid))
+
+    r = client.get(f"/api/v1/projects/{pid}/export?format=json", headers=auth_headers)
+    assert "application/json" in r.headers["content-type"]
+    assert f"project_{pid}.json" in r.headers["content-disposition"]
+
+
+def test_export_yolo_split_ignores_flag(client, auth_headers, pose_project):
+    pid = pose_project["id"]
+    _seed_frames(client, auth_headers, pid, "vid_a", list(range(10)))
+    _annotate(client, auth_headers, _all_items(client, auth_headers, pid))
+
+    r = client.get(
+        f"/api/v1/projects/{pid}/export?format=yolo_split"
+        "&train=70&val=20&test=10&seed=42&video_index=true",
+        headers=auth_headers,
+    )
+    assert "application/zip" in r.headers["content-type"]
+    names = zipfile.ZipFile(io.BytesIO(r.content)).namelist()
+    assert "video_index.csv" not in names
+
+
+def test_membership_yolo_excludes_unannotated_json_includes(client, auth_headers, pose_project):
+    pid = pose_project["id"]
+    _seed_frames(client, auth_headers, pid, "vid_a", [0, 1, 2])
+    items = _all_items(client, auth_headers, pid)
+    _annotate(client, auth_headers, items[:2])  # leave frame 2 unannotated
+
+    ry = client.get(
+        f"/api/v1/projects/{pid}/export?format=yolo&video_index=true", headers=auth_headers
+    )
+    yolo_rows = _index_rows(zipfile.ZipFile(io.BytesIO(ry.content)))
+    assert yolo_rows["vid_a"]["num_frames"] == "2"  # annotated-only
+
+    rj = client.get(
+        f"/api/v1/projects/{pid}/export?format=json&video_index=true", headers=auth_headers
+    )
+    json_rows = _index_rows(zipfile.ZipFile(io.BytesIO(rj.content)))
+    assert json_rows["vid_a"]["num_frames"] == "3"  # all items
