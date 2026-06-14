@@ -130,6 +130,16 @@ def build_coco_export(project_id: int) -> bytes:
     return json.dumps(_coco_doc(eligible)).encode("utf-8")
 
 
+def video_index_pairs(project_id: int) -> list[tuple[str, str]]:
+    """(source_video, frame_stem) for every frame in the flat COCO export — the
+    SAME eligible stream `build_coco_export` consumes, so the manifest matches
+    the doc's images[] exactly."""
+    return [
+        ((item.get("payload") or {}).get("source_video") or "", src.stem)
+        for item, src, _w, _h, _kps in eligible_pose_items(project_id, _NUM_KPTS)
+    ]
+
+
 def build_coco_split_export(
     project_id: int, train: int, val: int, test: int, seed: int
 ) -> tuple[BinaryIO, int]:

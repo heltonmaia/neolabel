@@ -268,3 +268,26 @@ def test_build_text_export_zip_csv(client, auth_headers, pose_project):
         stream.close()
     assert set(zf.namelist()) == {f"project_{pid}.csv", "video_index.csv"}
     assert zf.read(f"project_{pid}.csv") == b"".join(item_service.iter_export_csv(pid))
+
+
+def test_coco_video_index_pairs(client, auth_headers, pose_project):
+    from app.services import coco_export
+    from app.services.item import build_video_index_csv
+
+    pid = pose_project["id"]
+    _seed_frames(client, auth_headers, pid, "vid_a", [0, 3])
+    _seed_frames(client, auth_headers, pid, "vid_b", [1])
+    _annotate(client, auth_headers, _all_items(client, auth_headers, pid))
+
+    pairs = coco_export.video_index_pairs(pid)
+    rows = {
+        r["source_video"]: r
+        for r in csv.DictReader(io.StringIO(build_video_index_csv(pairs)))
+    }
+    assert rows["vid_a"] == {
+        "source_video": "vid_a",
+        "first_frame": "0",
+        "last_frame": "3",
+        "num_frames": "2",
+    }
+    assert rows["vid_b"]["num_frames"] == "1"
