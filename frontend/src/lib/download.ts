@@ -12,6 +12,7 @@ export interface DownloadOptions {
   signal?: AbortSignal;
   split?: { train: number; val: number; test: number; seed: number };
   excludeOccluded?: boolean;
+  videoIndex?: boolean;
 }
 
 export type ExportFormat =
@@ -36,6 +37,9 @@ export async function downloadExport(
   if ((format === 'yolo' || format === 'yolo_split') && opts?.excludeOccluded) {
     params.exclude_occluded = true;
   }
+  if (opts?.videoIndex) {
+    params.video_index = true;
+  }
   const res = await api.get(`/projects/${projectId}/export`, {
     params,
     responseType: 'blob',
@@ -58,7 +62,15 @@ export async function downloadExport(
     coco_split: `project_${projectId}_coco_split.zip`,
     bundle: `project_${projectId}_bundle.zip`,
   };
-  a.download = archiveNames[format] ?? `project_${projectId}.${format}`;
+  let name = archiveNames[format] ?? `project_${projectId}.${format}`;
+  if (
+    opts?.videoIndex &&
+    (format === 'coco' || format === 'json' || format === 'jsonl' || format === 'csv')
+  ) {
+    // backend wraps these in a zip when video_index is set
+    name = `project_${projectId}_${format}.zip`;
+  }
+  a.download = name;
   a.click();
   URL.revokeObjectURL(url);
 }

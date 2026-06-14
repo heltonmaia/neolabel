@@ -110,6 +110,7 @@ export default function ProjectDetailPage() {
   const [splitCfg, setSplitCfg] = useState({ train: 70, val: 20, test: 10, seed: 42 });
   const splitSum = splitCfg.train + splitCfg.val + splitCfg.test;
   const [excludeOccluded, setExcludeOccluded] = useState(false);
+  const [videoIndex, setVideoIndex] = useState(false);
   const exportAbortRef = useRef<AbortController | null>(null);
 
   async function handleExport() {
@@ -125,6 +126,8 @@ export default function ProjectDetailPage() {
         split: fmt === 'yolo_split' || fmt === 'coco_split' ? splitCfg : undefined,
         excludeOccluded:
           fmt === 'yolo' || fmt === 'yolo_split' ? excludeOccluded : undefined,
+        videoIndex:
+          fmt === 'yolo_split' || fmt === 'coco_split' ? undefined : videoIndex,
       });
     } catch (err) {
       if (!axios.isCancel(err)) {
@@ -650,6 +653,22 @@ export default function ProjectDetailPage() {
                     Excluir keypoints ocluídos (v=1) do treino
                     <span className="block text-slate-400">
                       vira 0 0 0; segue contando para a bounding box
+                    </span>
+                  </span>
+                </label>
+              )}
+              {exportFormat !== 'yolo_split' && exportFormat !== 'coco_split' && (
+                <label className="flex items-start gap-2 text-xs text-slate-600 cursor-pointer border-t pt-2 mt-1">
+                  <input
+                    type="checkbox"
+                    checked={videoIndex}
+                    onChange={(e) => setVideoIndex(e.target.checked)}
+                    className="mt-0.5"
+                  />
+                  <span>
+                    Incluir índice de vídeos (video_index.csv)
+                    <span className="block text-slate-400">
+                      início/fim dos frames por vídeo; json/jsonl/csv/coco saem como .zip
                     </span>
                   </span>
                 </label>
