@@ -615,8 +615,8 @@ def eligible_pose_items(
 
 def _yolo_records(
     project_id: int, num_kpts: int, exclude_occluded: bool = False
-) -> Iterator[tuple[Path, str, str]]:
-    """Yield (src_path, stem, label_line) for every export-eligible item.
+) -> Iterator[tuple[Path, str, str, str]]:
+    """Yield (src_path, stem, label_line, source_video) per export-eligible item.
 
     The label line is the normalized YOLO-pose row `0 cx cy w h x1 y1 v1 ...`.
     When `exclude_occluded` is set, occluded keypoints (v=1) are written as
@@ -649,10 +649,13 @@ def _yolo_records(
         )
         label_line = f"0 {cx:.6f} {cy:.6f} {bw:.6f} {bh:.6f} {kp_str}\n"
         stem = f"{item['id']:06d}_{src.stem}"
-        yield src, stem, label_line
+        source_video = (item.get("payload") or {}).get("source_video") or ""
+        yield src, stem, label_line, source_video
 
 
-def build_yolo_export(project_id: int, exclude_occluded: bool = False) -> tuple[BinaryIO, int]:
+def build_yolo_export(
+    project_id: int, exclude_occluded: bool = False, video_index: bool = False
+) -> tuple[BinaryIO, int]:
     """Build a flat YOLO-pose dataset ZIP (Ultralytics format).
 
     Everything lands in images/train + labels/train; data.yaml points both
@@ -681,10 +684,15 @@ def build_yolo_export(project_id: int, exclude_occluded: bool = False) -> tuple[
         )
 
         exported = 0
-        for src, stem, label_line in _yolo_records(project_id, num_kpts, exclude_occluded):
+        index_pairs: list[tuple[str, str]] = []
+        for src, stem, label_line, source_video in _yolo_records(
+            project_id, num_kpts, exclude_occluded
+        ):
             zf.write(src, f"images/train/{stem}{src.suffix}")
             zf.writestr(f"labels/train/{stem}.txt", label_line)
             exported += 1
+            if video_index:
+                index_pairs.append((source_video, src.stem))
 
         occ_note = "Occluded keypoints (v=1): excluded from training\n" if exclude_occluded else ""
         zf.writestr(
@@ -698,6 +706,8 @@ def build_yolo_export(project_id: int, exclude_occluded: bool = False) -> tuple[
             f"  yolo pose train data=data.yaml model=yolo11n-pose.pt epochs=100\n"
             f"(same yaml works for YOLOv8/v11/v12/v26 pose.)\n",
         )
+        if video_index:
+            zf.writestr("video_index.csv", build_video_index_csv(index_pairs))
 
     size = spooled.tell()
     spooled.seek(0)
@@ -780,7 +790,7 @@ def build_yolo_split_export(
         counts: dict[str, int] = {}
         for split_name, recs in splits:
             counts[split_name] = len(recs)
-            for src, stem, label_line in recs:
+            for src, stem, label_line, _source_video in recs:
                 zf.write(src, f"images/{split_name}/{stem}{src.suffix}")
                 zf.writestr(f"labels/{split_name}/{stem}.txt", label_line)
 

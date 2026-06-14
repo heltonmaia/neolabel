@@ -1,6 +1,10 @@
 import csv
 import io
+import os
+import struct
 import zipfile
+
+import pytest
 
 
 def test_frame_ref():
@@ -63,3 +67,132 @@ def test_zip_bytes_roundtrip():
     assert zf.read("a.txt") == b"hello"
     assert zf.read("b.csv") == b"x,y\n"
     assert size > 0
+
+
+def _tiny_jpeg(width: int, height: int) -> bytes:
+    sof0 = (
+        b"\xff\xc0"
+        + struct.pack(">H", 11)
+        + b"\x08"
+        + struct.pack(">H", height)
+        + struct.pack(">H", width)
+        + b"\x01\x01\x11\x00"
+    )
+    return b"\xff\xd8" + sof0 + b"\xff\xd9"
+
+
+# 17 infant keypoints: 16 visible (v=2) + 1 occluded (v=1).
+_KPS = [[50 + i * 5, 60 + i * 5, 2] for i in range(16)] + [[600, 470, 1]]
+
+
+@pytest.fixture
+def pose_project(client, auth_headers) -> dict:
+    r = client.post(
+        "/api/v1/projects",
+        json={"name": "P-vindex", "type": "pose_detection"},
+        headers=auth_headers,
+    )
+    return r.json()
+
+
+def _seed_frames(client, auth_headers, pid: int, video: str, indices: list[int]) -> None:
+    """Create a frame JPG + item (payload.source_video=video) for each index."""
+    from app.core.config import settings
+
+    for k in indices:
+        rel = f"projects/{pid}/frames/{video}/f_{k:06d}.jpg"
+        path = os.path.join(settings.DATA_DIR, rel)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "wb") as f:
+            f.write(_tiny_jpeg(640, 480))
+        client.post(
+            f"/api/v1/projects/{pid}/items/bulk",
+            json={"items": [{"payload": {"image_url": f"/files/{rel}", "source_video": video}}]},
+            headers=auth_headers,
+        )
+
+
+def _all_items(client, auth_headers, pid: int) -> list[dict]:
+    return client.get(
+        f"/api/v1/projects/{pid}/items?limit=500", headers=auth_headers
+    ).json()["items"]
+
+
+def _annotate(client, auth_headers, items: list[dict]) -> None:
+    for it in items:
+        client.put(
+            f"/api/v1/items/{it['id']}/annotation",
+            json={"value": {"keypoints": _KPS}},
+            headers=auth_headers,
+        )
+
+
+def _index_rows(zf: zipfile.ZipFile) -> dict[str, dict]:
+    text = zf.read("video_index.csv").decode("utf-8")
+    return {r["source_video"]: r for r in csv.DictReader(io.StringIO(text))}
+
+
+def test_yolo_video_index(client, auth_headers, pose_project):
+    from app.services import item as item_service
+
+    pid = pose_project["id"]
+    _seed_frames(client, auth_headers, pid, "vid_a", [0, 1, 2, 5])
+    _seed_frames(client, auth_headers, pid, "vid_b", [3, 7])
+    _annotate(client, auth_headers, _all_items(client, auth_headers, pid))
+
+    stream, _ = item_service.build_yolo_export(pid, video_index=True)
+    try:
+        zf = zipfile.ZipFile(io.BytesIO(stream.read()))
+    finally:
+        stream.close()
+
+    assert "video_index.csv" in zf.namelist()
+    rows = _index_rows(zf)
+    # vid_a created [0,1,2,5] -> first=0 last=5 count=4 (count < range; gaps OK)
+    assert rows["vid_a"] == {
+        "source_video": "vid_a",
+        "first_frame": "0",
+        "last_frame": "5",
+        "num_frames": "4",
+    }
+    assert rows["vid_b"] == {
+        "source_video": "vid_b",
+        "first_frame": "3",
+        "last_frame": "7",
+        "num_frames": "2",
+    }
+    # sum of counts == number of label files written
+    n_labels = sum(1 for n in zf.namelist() if n.startswith("labels/train/"))
+    assert n_labels == 6
+
+
+def test_yolo_no_flag_has_no_index(client, auth_headers, pose_project):
+    from app.services import item as item_service
+
+    pid = pose_project["id"]
+    _seed_frames(client, auth_headers, pid, "vid_a", [0, 1])
+    _annotate(client, auth_headers, _all_items(client, auth_headers, pid))
+
+    stream, _ = item_service.build_yolo_export(pid)
+    try:
+        names = zipfile.ZipFile(io.BytesIO(stream.read())).namelist()
+    finally:
+        stream.close()
+    assert "video_index.csv" not in names
+
+
+def test_yolo_split_still_builds(client, auth_headers, pose_project):
+    # Guards the widened _yolo_records tuple unpack in the split builder.
+    from app.services import item as item_service
+
+    pid = pose_project["id"]
+    _seed_frames(client, auth_headers, pid, "vid_a", [0, 1, 2, 3, 4, 5, 6, 7, 8, 9])
+    _annotate(client, auth_headers, _all_items(client, auth_headers, pid))
+
+    stream, _ = item_service.build_yolo_split_export(pid, train=70, val=20, test=10, seed=42)
+    try:
+        names = zipfile.ZipFile(io.BytesIO(stream.read())).namelist()
+    finally:
+        stream.close()
+    assert any(n.startswith("images/train/") for n in names)
+    assert "video_index.csv" not in names
