@@ -814,7 +814,7 @@ def build_yolo_split_export(
     return spooled, size
 
 
-def build_bundle_export(project_id: int) -> tuple[BinaryIO, int]:
+def build_bundle_export(project_id: int, video_index: bool = False) -> tuple[BinaryIO, int]:
     """Build a self-contained ZIP with annotations.json + source images.
 
     Structure:
@@ -835,11 +835,16 @@ def build_bundle_export(project_id: int) -> tuple[BinaryIO, int]:
     rows: list[dict] = []
     included_images = 0
     seen: set[str] = set()
+    index_pairs: list[tuple[str, str]] = []
 
     with zipfile.ZipFile(spooled, "w", zipfile.ZIP_DEFLATED) as zf:
         for item in items:
             ann_value = anns.get(item["id"], {}).get("value") if item["id"] in anns else None
             payload = dict(item.get("payload") or {})
+            if video_index:
+                ref = _frame_ref(item.get("payload") or {})
+                if ref:
+                    index_pairs.append(ref)
             image_url = payload.get("image_url")
             if isinstance(image_url, str) and image_url.startswith("/files/"):
                 src = data_root / image_url[len("/files/") :]
@@ -875,6 +880,8 @@ def build_bundle_export(project_id: int) -> tuple[BinaryIO, int]:
             f"(images/<stem>.<ext>), so the bundle can be unzipped and\n"
             f"consumed as-is on any machine.\n",
         )
+        if video_index:
+            zf.writestr("video_index.csv", build_video_index_csv(index_pairs))
 
     size = spooled.tell()
     spooled.seek(0)

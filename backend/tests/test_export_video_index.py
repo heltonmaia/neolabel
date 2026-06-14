@@ -196,3 +196,31 @@ def test_yolo_split_still_builds(client, auth_headers, pose_project):
         stream.close()
     assert any(n.startswith("images/train/") for n in names)
     assert "video_index.csv" not in names
+
+
+def test_bundle_video_index(client, auth_headers, pose_project):
+    from app.services import item as item_service
+
+    pid = pose_project["id"]
+    _seed_frames(client, auth_headers, pid, "vid_a", [0, 1, 4])
+    _seed_frames(client, auth_headers, pid, "vid_b", [2])
+    # bundle includes ALL items (annotation optional); annotate only some
+    items = _all_items(client, auth_headers, pid)
+    _annotate(client, auth_headers, items[:2])
+
+    stream, _ = item_service.build_bundle_export(pid, video_index=True)
+    try:
+        zf = zipfile.ZipFile(io.BytesIO(stream.read()))
+    finally:
+        stream.close()
+
+    assert "video_index.csv" in zf.namelist()
+    rows = _index_rows(zf)
+    # all 4 items counted regardless of annotation status
+    assert rows["vid_a"] == {
+        "source_video": "vid_a",
+        "first_frame": "0",
+        "last_frame": "4",
+        "num_frames": "3",
+    }
+    assert rows["vid_b"]["num_frames"] == "1"
