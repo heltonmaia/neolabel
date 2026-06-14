@@ -336,6 +336,21 @@ def test_export_csv_endpoint_becomes_zip(client, auth_headers, pose_project):
     assert f"project_{pid}_csv.zip" in r.headers["content-disposition"]
 
 
+def test_export_jsonl_endpoint_becomes_zip(client, auth_headers, pose_project):
+    pid = pose_project["id"]
+    _seed_frames(client, auth_headers, pid, "vid_a", [0])
+    _annotate(client, auth_headers, _all_items(client, auth_headers, pid))
+
+    r = client.get(
+        f"/api/v1/projects/{pid}/export?format=jsonl&video_index=true", headers=auth_headers
+    )
+    assert r.status_code == 200
+    assert "application/zip" in r.headers["content-type"]
+    assert f"project_{pid}_jsonl.zip" in r.headers["content-disposition"]
+    names = zipfile.ZipFile(io.BytesIO(r.content)).namelist()
+    assert set(names) == {f"project_{pid}.jsonl", "video_index.csv"}
+
+
 def test_export_coco_endpoint_video_index(client, auth_headers, pose_project):
     pid = pose_project["id"]
     _seed_frames(client, auth_headers, pid, "vid_a", [0, 1])
