@@ -4,7 +4,7 @@ import json
 import random
 import tempfile
 import zipfile
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import BinaryIO
@@ -866,6 +866,68 @@ def build_bundle_export(project_id: int) -> tuple[BinaryIO, int]:
             f"consumed as-is on any machine.\n",
         )
 
+    size = spooled.tell()
+    spooled.seek(0)
+    return spooled, size
+
+
+def _frame_ref(payload: dict) -> tuple[str, str] | None:
+    """(source_video, frame_stem) for a payload that references a frame, else None.
+
+    frame_stem is the image's file stem, e.g. "f_000123". source_video defaults
+    to "" when absent (COCO-imported standalone images have no source video).
+    """
+    image_url = (payload or {}).get("image_url")
+    if not isinstance(image_url, str) or not image_url:
+        return None
+    source_video = (payload or {}).get("source_video") or ""
+    return source_video, Path(image_url).stem
+
+
+def _frame_sort_key(stem: str) -> tuple[int, object]:
+    """Numeric "f_<digits>" stems sort by their integer; anything else sorts
+    after, lexicographically. Keeps min/max well-defined for imported data."""
+    if stem.startswith("f_") and stem[2:].isdigit():
+        return (0, int(stem[2:]))
+    return (1, stem)
+
+
+def _frame_label(stem: str) -> object:
+    """Display value for a frame boundary: the int for "f_<digits>", else the stem."""
+    if stem.startswith("f_") and stem[2:].isdigit():
+        return int(stem[2:])
+    return stem
+
+
+def build_video_index_csv(pairs: Iterable[tuple[str, str]]) -> str:
+    """Per-video manifest CSV from (source_video, frame_stem) pairs.
+
+    Columns: source_video, first_frame, last_frame, num_frames. Rows are ordered
+    by each video's first appearance in `pairs`. first/last are the min/max frame
+    by `_frame_sort_key`; num_frames is the count of that video's frames present.
+    """
+    groups: dict[str, list[str]] = {}
+    for source_video, stem in pairs:
+        groups.setdefault(source_video, []).append(stem)
+
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(["source_video", "first_frame", "last_frame", "num_frames"])
+    for source_video, stems in groups.items():
+        ordered = sorted(stems, key=_frame_sort_key)
+        writer.writerow(
+            [source_video, _frame_label(ordered[0]), _frame_label(ordered[-1]), len(stems)]
+        )
+    return buf.getvalue()
+
+
+def zip_bytes(entries: list[tuple[str, bytes]]) -> tuple[BinaryIO, int]:
+    """Spooled (64 MiB) ZIP_DEFLATED archive from in-memory (name, bytes)
+    entries. Returns (file-like at position 0, byte size); caller closes."""
+    spooled = tempfile.SpooledTemporaryFile(max_size=64 * 1024 * 1024, mode="w+b")
+    with zipfile.ZipFile(spooled, "w", zipfile.ZIP_DEFLATED) as zf:
+        for name, data in entries:
+            zf.writestr(name, data)
     size = spooled.tell()
     spooled.seek(0)
     return spooled, size
