@@ -224,3 +224,47 @@ def test_bundle_video_index(client, auth_headers, pose_project):
         "num_frames": "3",
     }
     assert rows["vid_b"]["num_frames"] == "1"
+
+
+def test_build_text_export_zip_json(client, auth_headers, pose_project):
+    import json as _json
+
+    from app.services import item as item_service
+
+    pid = pose_project["id"]
+    _seed_frames(client, auth_headers, pid, "vid_a", [0, 1])
+    _seed_frames(client, auth_headers, pid, "vid_b", [4])
+    _annotate(client, auth_headers, _all_items(client, auth_headers, pid))
+
+    stream, _ = item_service.build_text_export_zip(pid, "json")
+    try:
+        zf = zipfile.ZipFile(io.BytesIO(stream.read()))
+    finally:
+        stream.close()
+
+    assert set(zf.namelist()) == {f"project_{pid}.json", "video_index.csv"}
+    # inner json equals the streamed body
+    inner = zf.read(f"project_{pid}.json")
+    streamed = b"".join(item_service.iter_export_json(pid))
+    assert inner == streamed
+    body = _json.loads(inner)
+    assert len(body) == 3
+    rows = _index_rows(zf)
+    assert rows["vid_a"]["num_frames"] == "2"
+    assert rows["vid_b"]["num_frames"] == "1"
+
+
+def test_build_text_export_zip_csv(client, auth_headers, pose_project):
+    from app.services import item as item_service
+
+    pid = pose_project["id"]
+    _seed_frames(client, auth_headers, pid, "vid_a", [0])
+    _annotate(client, auth_headers, _all_items(client, auth_headers, pid))
+
+    stream, _ = item_service.build_text_export_zip(pid, "csv")
+    try:
+        zf = zipfile.ZipFile(io.BytesIO(stream.read()))
+    finally:
+        stream.close()
+    assert set(zf.namelist()) == {f"project_{pid}.csv", "video_index.csv"}
+    assert zf.read(f"project_{pid}.csv") == b"".join(item_service.iter_export_csv(pid))

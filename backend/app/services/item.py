@@ -1000,3 +1000,26 @@ def iter_export_csv(project_id: int) -> Iterator[bytes]:
         yield buf.getvalue().encode("utf-8")
         buf.seek(0)
         buf.truncate()
+
+
+_TEXT_SERIALIZERS = {
+    "json": iter_export_json,
+    "jsonl": iter_export_jsonl,
+    "csv": iter_export_csv,
+}
+
+
+def build_text_export_zip(project_id: int, fmt: str) -> tuple[BinaryIO, int]:
+    """ZIP [project_<id>.<fmt> + video_index.csv] for the text formats.
+
+    The inner file is byte-identical to the streamed (flag-off) output — it
+    reuses the same serializer. The manifest reflects every exported row that
+    references a frame (these formats include pending items too)."""
+    body = b"".join(_TEXT_SERIALIZERS[fmt](project_id))
+    pairs = [
+        ref for row in _iter_export_rows(project_id) if (ref := _frame_ref(row["payload"]))
+    ]
+    csv_text = build_video_index_csv(pairs)
+    return zip_bytes(
+        [(f"project_{project_id}.{fmt}", body), ("video_index.csv", csv_text.encode("utf-8"))]
+    )
