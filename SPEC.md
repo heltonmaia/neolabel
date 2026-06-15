@@ -13,7 +13,8 @@ diverges, update the spec **before** the code.
 - ✅ **Phase 2 — Text labeling MVP.** Labels, bulk item upload,
   keyboard-driven annotation UI, exports (JSON/JSONL/CSV).
 - ✅ **Phase 3 — Pose detection.** Video upload with FFmpeg frame
-  extraction, keyboard-driven annotation, YOLO-pose ZIP export.
+  extraction (or a raw-image ZIP imported as pending frames),
+  keyboard-driven annotation, YOLO-pose ZIP export.
   Keypoint schemas: infant pose (17 COCO, `BabyAvatar` guide) and
   rodent pose (7 keypoints) for behavioral assays (OF / EPM). See §2.
 - ✅ **Phase 4 — Multi-user assignments.** `admin` role, per-user
@@ -220,6 +221,18 @@ user does not own returns **404** (to avoid leaking existence), with
   ∈ {0, 90, 180, 270} applies an FFmpeg `transpose` so extracted
   frames come out upright. `assignee_id` is optional — omit to leave
   every extracted frame unassigned (admin-pool only).
+- `POST   /projects/{id}/import-images` — admin-only, pose projects only
+  (400 otherwise); form(`file`, `assignee_id?`, `resize_mode` ∈
+  {`pad`, `stretch`}, default `pad`). Streams an image ZIP to disk in
+  1 MiB chunks (caps at **500 MiB** → 413), extracts with path-traversal
+  guards, and creates one **pending** item per image (`.jpg`/`.jpeg`/
+  `.png`, found recursively). Each image is re-encoded to 640×640 with
+  the same FFmpeg resize as video upload, so image frames and video
+  frames are interchangeable. All images flatten into one source group
+  named after the ZIP; `frame_index` continues past any existing frames
+  in that group. Returns `{items_created, skipped_files, source_video,
+  resize_mode}`. 400 on empty / invalid ZIP / no images / bad
+  `resize_mode`.
 - `GET    /projects/{id}/videos` — admin overview (per-video
   `frames`, `done`, `assigned_to` — `null` when unassigned or mixed)
 - `PATCH  /projects/{id}/videos/{source}/assign` — admin-only;
