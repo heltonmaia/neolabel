@@ -22,9 +22,9 @@ import {
   type OutlierItem,
 } from '@/api/items';
 import { listUsers } from '@/api/users';
-import { deleteVideo, importCocoPose, listVideos, reassignVideo, rotateVideo, uploadVideo } from '@/api/videos';
+import { deleteVideo, importCocoPose, importImages, listVideos, reassignVideo, rotateVideo, uploadVideo } from '@/api/videos';
 import { VideoRotateButtons } from '@/features/projects/VideoRotateButtons';
-import type { CocoImportResult, ResizeMode } from '@/api/videos';
+import type { CocoImportResult, ImageImportResult, ResizeMode } from '@/api/videos';
 import { downloadExport, type ExportFormat } from '@/lib/download';
 import { frameUrl } from '@/lib/frameUrl';
 import { useConfirm } from '@/components/ui/ConfirmDialog';
@@ -87,6 +87,10 @@ export default function ProjectDetailPage() {
   const [importFile, setImportFile] = useState<File | null>(null);
   const [importAssignee, setImportAssignee] = useState<number | ''>('');
   const [importResult, setImportResult] = useState<CocoImportResult | null>(null);
+  const [imagesFile, setImagesFile] = useState<File | null>(null);
+  const [imagesAssignee, setImagesAssignee] = useState<number | ''>('');
+  const [imagesResizeMode, setImagesResizeMode] = useState<ResizeMode>('pad');
+  const [imagesResult, setImagesResult] = useState<ImageImportResult | null>(null);
   const videoPreviewUrl = useMemo(
     () => (videoFile ? URL.createObjectURL(videoFile) : null),
     [videoFile],
@@ -226,6 +230,22 @@ export default function ProjectDetailPage() {
     onSuccess: (data) => {
       setImportResult(data);
       setImportFile(null);
+      qc.invalidateQueries({ queryKey: ['items', projectId] });
+      qc.invalidateQueries({ queryKey: ['videos', projectId] });
+    },
+  });
+
+  const imagesImport = useMutation({
+    mutationFn: () =>
+      importImages(
+        projectId,
+        imagesFile!,
+        imagesAssignee === '' ? null : imagesAssignee,
+        imagesResizeMode,
+      ),
+    onSuccess: (data) => {
+      setImagesResult(data);
+      setImagesFile(null);
       qc.invalidateQueries({ queryKey: ['items', projectId] });
       qc.invalidateQueries({ queryKey: ['videos', projectId] });
     },
@@ -1166,6 +1186,201 @@ export default function ProjectDetailPage() {
         </section>
         ) : null
       ) : null}
+
+      {/* Upload images ZIP (admin, pose projects) */}
+      {isPose && isAdmin && (
+        <section className="bg-white rounded-lg shadow">
+          <details className="group">
+            <summary className="flex items-center justify-between gap-3 cursor-pointer px-4 py-3 select-none hover:bg-slate-50 rounded-lg">
+              <div className="min-w-0">
+                <h2 className="font-semibold">Upload images (ZIP)</h2>
+                <p className="text-xs text-slate-500">
+                  Drop a ZIP of images (JPG/PNG). Each image becomes one pending
+                  frame resized to 640 × 640; all images are grouped under a
+                  single source named after the ZIP file.
+                </p>
+              </div>
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className="shrink-0 text-slate-400 transition-transform group-open:rotate-180"
+              >
+                <polyline points="6 9 12 15 18 9" />
+              </svg>
+            </summary>
+            <div className="px-4 pb-4 pt-3 border-t space-y-4">
+
+          {!imagesFile ? (
+            <label
+              className="flex flex-col items-center justify-center gap-2 px-6 py-8 border-2 border-dashed border-slate-200 bg-slate-50 rounded-lg cursor-pointer hover:bg-slate-100 hover:border-slate-300 transition-colors"
+            >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                width="28"
+                height="28"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.6"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className="text-slate-400"
+              >
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                <polyline points="17 8 12 3 7 8" />
+                <line x1="12" y1="3" x2="12" y2="15" />
+              </svg>
+              <span className="text-sm font-medium text-slate-700">
+                Click to choose an images ZIP
+              </span>
+              <span className="text-xs text-slate-500">
+                JPG / PNG files inside a .zip
+              </span>
+              <input
+                type="file"
+                accept=".zip,application/zip"
+                onChange={(e) => {
+                  setImagesFile(e.target.files?.[0] ?? null);
+                  setImagesResult(null);
+                }}
+                className="hidden"
+              />
+            </label>
+          ) : (
+            <div className="flex items-center gap-3 p-3 border rounded-lg bg-slate-50">
+              <div className="flex-1 min-w-0">
+                <div className="font-medium truncate" title={imagesFile.name}>
+                  {imagesFile.name}
+                </div>
+                <div className="text-xs text-slate-500">
+                  {formatBytes(imagesFile.size)}
+                </div>
+              </div>
+              <button
+                onClick={() => setImagesFile(null)}
+                className="text-xs border rounded px-2 py-1 text-red-600 hover:bg-red-50"
+              >
+                Remove
+              </button>
+            </div>
+          )}
+
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-slate-600 uppercase tracking-wide">
+              Resize to 640 × 640
+            </label>
+            <div className="grid sm:grid-cols-2 gap-2">
+              <label
+                className={`flex items-start gap-2 border rounded px-3 py-2 cursor-pointer text-sm ${
+                  imagesResizeMode === 'pad'
+                    ? 'border-blue-500 bg-blue-50'
+                    : 'border-slate-200 hover:bg-slate-50'
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="img-resize-mode"
+                  value="pad"
+                  checked={imagesResizeMode === 'pad'}
+                  onChange={() => setImagesResizeMode('pad')}
+                  className="mt-0.5"
+                />
+                <span>
+                  <span className="font-medium">Keep aspect ratio</span>{' '}
+                  <span className="text-xs text-emerald-700">(recommended)</span>
+                  <span className="block text-xs text-slate-500">
+                    Letterbox with black bars — no distortion.
+                  </span>
+                </span>
+              </label>
+              <label
+                className={`flex items-start gap-2 border rounded px-3 py-2 cursor-pointer text-sm ${
+                  imagesResizeMode === 'stretch'
+                    ? 'border-blue-500 bg-blue-50'
+                    : 'border-slate-200 hover:bg-slate-50'
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="img-resize-mode"
+                  value="stretch"
+                  checked={imagesResizeMode === 'stretch'}
+                  onChange={() => setImagesResizeMode('stretch')}
+                  className="mt-0.5"
+                />
+                <span>
+                  <span className="font-medium">Stretch</span>
+                  <span className="block text-xs text-slate-500">
+                    Fill the frame — distorts non-square sources.
+                  </span>
+                </span>
+              </label>
+            </div>
+          </div>
+
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-slate-600 uppercase tracking-wide">
+              Assign to
+            </label>
+            <select
+              value={imagesAssignee}
+              onChange={(e) =>
+                setImagesAssignee(e.target.value ? Number(e.target.value) : '')
+              }
+              className="border rounded px-2 py-1.5 text-sm w-full sm:w-64"
+            >
+              <option value="">— leave unassigned —</option>
+              {(usersQ.data ?? []).map((u) => (
+                <option key={u.id} value={u.id}>
+                  {u.username} ({u.role})
+                </option>
+              ))}
+            </select>
+            <div className="text-xs text-slate-500">
+              Optional — assign later from the videos table if you prefer.
+            </div>
+          </div>
+
+          <div className="flex items-center justify-end pt-2 border-t">
+            <button
+              onClick={() => imagesImport.mutate()}
+              disabled={!imagesFile || imagesImport.isPending}
+              className="inline-flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 disabled:opacity-50 text-sm font-medium"
+            >
+              {imagesImport.isPending ? 'Uploading…' : 'Upload images'}
+            </button>
+          </div>
+
+          {imagesImport.isError && (
+            <p className="text-sm text-red-600">
+              {(imagesImport.error as { response?: { data?: { detail?: string } } })
+                ?.response?.data?.detail ?? 'Upload failed'}
+            </p>
+          )}
+          {imagesResult && (
+            <div className="text-sm text-emerald-700 space-y-0.5">
+              <p>
+                Created <b>{imagesResult.items_created}</b> frames
+                {imagesResult.skipped_files > 0 && (
+                  <>{' · '}<b>{imagesResult.skipped_files}</b> non-image files skipped</>
+                )}
+              </p>
+              <p className="text-xs text-slate-500">
+                Grouped under: {imagesResult.source_video}
+              </p>
+            </div>
+          )}
+            </div>
+          </details>
+        </section>
+      )}
 
       {/* Import COCO-pose (admin, pose projects) */}
       {isPose && isAdmin && (

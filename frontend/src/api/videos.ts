@@ -78,6 +78,31 @@ export async function importCocoPose(
   return data;
 }
 
+export interface ImageImportResult {
+  items_created: number;
+  skipped_files: number;
+  source_video: string;
+  resize_mode: ResizeMode;
+}
+
+export async function importImages(
+  projectId: number,
+  file: File,
+  assigneeId: number | null,
+  resizeMode: ResizeMode = 'pad',
+): Promise<ImageImportResult> {
+  const form = new FormData();
+  form.append('file', file);
+  if (assigneeId !== null) form.append('assignee_id', String(assigneeId));
+  form.append('resize_mode', resizeMode);
+  const { data } = await api.post<ImageImportResult>(
+    `/projects/${projectId}/import-images`,
+    form,
+    { headers: { 'Content-Type': 'multipart/form-data' } },
+  );
+  return data;
+}
+
 export async function deleteVideo(projectId: number, sourceVideo: string) {
   const { data } = await api.delete<{ deleted: number }>(
     `/projects/${projectId}/videos/${encodeURIComponent(sourceVideo)}`,

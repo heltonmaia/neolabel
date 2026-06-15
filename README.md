@@ -21,8 +21,9 @@ datasets. Two keypoint schemas ship by default: **17-point infant pose
 NeoLabel covers the path from raw video to a trainable dataset in four
 steps:
 
-1. **Upload videos** at a chosen FPS — FFmpeg extracts the frames.
-   Optionally resize to **640×640** (letterbox or stretch). Optionally
+1. **Upload videos** at a chosen FPS — FFmpeg extracts the frames — or
+   **upload a ZIP of images** to import each one as a frame. Either way,
+   optionally resize to **640×640** (letterbox or stretch). You can also
    **import an existing COCO keypoints dataset** to start from
    pre-annotated items.
 2. **Assign work** — admins assign whole videos to a specific annotator

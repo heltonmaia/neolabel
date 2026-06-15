@@ -12,14 +12,16 @@ from typing import BinaryIO
 
 from app.core import storage
 from app.schemas.item import ItemStatus
+# Import names directly: several functions here use a local `frames` variable,
+# so importing the module would shadow it (UnboundLocalError).
+from app.services.frames import RESIZE_MODES, TARGET_SIZE, resize_filter
 
 
 _SAFE = re.compile(r"[^A-Za-z0-9_.-]+")
 _MAX_VIDEO_BYTES = 500 * 1024 * 1024    # 500 MiB
 _CHUNK_BYTES = 1024 * 1024              # 1 MiB
-_TARGET_SIZE = 640
-_PAD_COLOR = "black"
-_RESIZE_MODES = ("stretch", "pad")
+_TARGET_SIZE = TARGET_SIZE              # shared with the image importer
+_RESIZE_MODES = RESIZE_MODES
 
 
 def _probe_duration_s(path: Path) -> float | None:
@@ -173,17 +175,6 @@ def rotate_video(project_id: int, source_video: str, degrees: int) -> int:
     return len(frames)
 
 
-def _resize_filter(mode: str) -> str:
-    if mode == "stretch":
-        return f"scale={_TARGET_SIZE}:{_TARGET_SIZE}"
-    # "pad" — scale the longer edge to 640 then pad the shorter edge with
-    # solid color. Matches Ultralytics' letterbox convention.
-    return (
-        f"scale={_TARGET_SIZE}:{_TARGET_SIZE}:force_original_aspect_ratio=decrease,"
-        f"pad={_TARGET_SIZE}:{_TARGET_SIZE}:(ow-iw)/2:(oh-ih)/2:color={_PAD_COLOR}"
-    )
-
-
 def extract_frames(
     project_id: int,
     source: BinaryIO,
@@ -235,7 +226,7 @@ def extract_frames(
     # `round=up` ensures the last boundary frame is kept instead of dropped,
     # which otherwise undercounts short clips by one.
     filters.append(f"fps=fps={fps}:round=up")
-    filters.append(_resize_filter(resize_mode))
+    filters.append(resize_filter(resize_mode))
     vf = ",".join(filters)
 
     frames_dir = pdir / "frames" / name
