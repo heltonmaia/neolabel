@@ -17,6 +17,7 @@ build/
 .idea/
 .vscode/
 .run/
+.superpowers/
 *.egg-info/
 seed_users.json
 *.tsbuildinfo
