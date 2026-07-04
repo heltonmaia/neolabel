@@ -10,7 +10,15 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
     FRONTEND_URL: str = "http://localhost:5173"
     API_V1_PREFIX: str = "/api/v1"
-    SEED_USERS_FILE: str = "../seed_users.json"
+    SEED_USERS_FILE: str = "../seed_users.json"  # removed in Task 7 with its consumer
+
+    # Google Sign-In (public Client ID — no secret needed for the ID-token flow)
+    GOOGLE_CLIENT_ID: str = ""
+    # Email allowlist mapping email -> role (relative to backend CWD)
+    ACCESS_ALLOWLIST_FILE: str = "../allowlist.json"
+    # Break-glass local admin (empty -> not seeded)
+    BREAKGLASS_ADMIN_EMAIL: str = ""
+    BREAKGLASS_ADMIN_PASSWORD: str = ""
 
 
 settings = Settings()

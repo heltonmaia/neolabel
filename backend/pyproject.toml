@@ -12,6 +12,7 @@ dependencies = [
     "python-jose[cryptography]>=3.3",
     "python-multipart>=0.0.12",
     "slowapi>=0.1.9",
+    "google-auth>=2.35",
 ]
 
 [dependency-groups]
