@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { useNavigate } from 'react-router-dom';
-import { login } from '@/api/auth';
+import { GoogleLogin } from '@react-oauth/google';
+import { login, loginWithGoogle } from '@/api/auth';
 import { useAuth } from '@/stores/auth';
 
 interface Form { username: string; password: string }
@@ -14,6 +15,25 @@ export default function LoginPage() {
   const navigate = useNavigate();
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [showAdmin, setShowAdmin] = useState(false);
+
+  async function onGoogle(credential: string | undefined) {
+    setError(null);
+    if (!credential) {
+      setError('Google sign-in failed. Please try again.');
+      return;
+    }
+    setLoading(true);
+    try {
+      const { access_token } = await loginWithGoogle(credential);
+      setToken(access_token);
+      navigate('/projects');
+    } catch {
+      setError('This Google account is not authorized.');
+    } finally {
+      setLoading(false);
+    }
+  }
 
   async function onSubmit(values: Form) {
     setError(null);
@@ -80,10 +100,7 @@ export default function LoginPage() {
       </aside>
 
       <main className="flex items-center justify-center p-6 lg:p-10">
-        <form
-          onSubmit={handleSubmit(onSubmit)}
-          className="w-full max-w-sm bg-white p-8 rounded-xl shadow-sm ring-1 ring-slate-200 space-y-5"
-        >
+        <div className="w-full max-w-sm bg-white p-8 rounded-xl shadow-sm ring-1 ring-slate-200 space-y-5">
           <div className="flex items-center gap-2 lg:hidden">
             <LogoMark />
             <span className="text-lg font-semibold tracking-tight text-sky-900">NeoLabel</span>
@@ -93,40 +110,57 @@ export default function LoginPage() {
             <p className="mt-1 text-sm text-slate-500">Access your annotation workspace.</p>
           </div>
 
-          <label className="block space-y-1">
-            <span className="text-xs font-medium text-slate-600 uppercase tracking-wide">Username</span>
-            <input
-              {...register('username', { required: true })}
-              autoComplete="username"
-              placeholder="annotator"
-              className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm
-                         focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500"
+          <div className="flex justify-center">
+            <GoogleLogin
+              onSuccess={(cred) => onGoogle(cred.credential)}
+              onError={() => setError('Google sign-in failed. Please try again.')}
             />
-          </label>
-
-          <label className="block space-y-1">
-            <span className="text-xs font-medium text-slate-600 uppercase tracking-wide">Password</span>
-            <input
-              {...register('password', { required: true })}
-              type="password"
-              autoComplete="current-password"
-              placeholder="••••••••"
-              className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm
-                         focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500"
-            />
-          </label>
+          </div>
 
           {error && <p className="text-red-600 text-sm">{error}</p>}
 
           <button
-            disabled={loading}
-            className="w-full py-2.5 rounded-md text-white font-medium
-                       bg-gradient-to-r from-sky-600 to-sky-700 hover:from-sky-700 hover:to-sky-800
-                       disabled:opacity-60 disabled:cursor-not-allowed transition"
+            type="button"
+            onClick={() => setShowAdmin((v) => !v)}
+            className="text-xs text-slate-400 hover:text-slate-600 underline underline-offset-2"
           >
-            {loading ? 'Signing in…' : 'Sign in'}
+            Entrar como admin (emergência)
           </button>
-        </form>
+
+          {showAdmin && (
+            <form onSubmit={handleSubmit(onSubmit)} className="space-y-4 border-t border-slate-100 pt-4">
+              <label className="block space-y-1">
+                <span className="text-xs font-medium text-slate-600 uppercase tracking-wide">Admin e-mail</span>
+                <input
+                  {...register('username', { required: true })}
+                  autoComplete="username"
+                  placeholder="admin@example.com"
+                  className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm
+                             focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500"
+                />
+              </label>
+              <label className="block space-y-1">
+                <span className="text-xs font-medium text-slate-600 uppercase tracking-wide">Password</span>
+                <input
+                  {...register('password', { required: true })}
+                  type="password"
+                  autoComplete="current-password"
+                  placeholder="••••••••"
+                  className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm
+                             focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500"
+                />
+              </label>
+              <button
+                disabled={loading}
+                className="w-full py-2.5 rounded-md text-white font-medium
+                           bg-gradient-to-r from-sky-600 to-sky-700 hover:from-sky-700 hover:to-sky-800
+                           disabled:opacity-60 disabled:cursor-not-allowed transition"
+              >
+                {loading ? 'Signing in…' : 'Sign in as admin'}
+              </button>
+            </form>
+          )}
+        </div>
       </main>
     </div>
   );
