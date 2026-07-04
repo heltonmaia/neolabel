@@ -25,7 +25,7 @@ for arg in "$@"; do
 done
 
 [[ -f "$ENV_FILE" ]] || { echo "missing $ENV_FILE (copy .env.prod.example and fill in)" >&2; exit 1; }
-[[ -f "seed_users.json" ]] || { echo "missing seed_users.json (copy seed_users.example.json)" >&2; exit 1; }
+[[ -f "allowlist.json" ]] || { echo "missing allowlist.json (copy allowlist.example.json)" >&2; exit 1; }
 
 compose() {
   docker compose -p "$PROJECT" --env-file "$ENV_FILE" -f "$COMPOSE_FILE" "$@"

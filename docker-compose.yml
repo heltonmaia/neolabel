@@ -5,13 +5,16 @@ services:
       DATA_DIR: /data
       SECRET_KEY: ${SECRET_KEY:-dev-secret-change-me}
       FRONTEND_URL: ${FRONTEND_URL:-http://localhost:5173}
-      SEED_USERS_FILE: /seed_users.json
+      ACCESS_ALLOWLIST_FILE: /allowlist.json
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      BREAKGLASS_ADMIN_EMAIL: ${BREAKGLASS_ADMIN_EMAIL:-}
+      BREAKGLASS_ADMIN_PASSWORD: ${BREAKGLASS_ADMIN_PASSWORD:-}
     ports:
       - "${BACKEND_PORT:-8000}:8000"
     volumes:
       - ./backend:/app
       - ./data:/data
-      - ./seed_users.json:/seed_users.json:ro
+      - ./allowlist.json:/allowlist.json:ro
 
   frontend:
     build: ./frontend
@@ -19,6 +22,7 @@ services:
       - backend
     environment:
       VITE_API_URL: ${VITE_API_URL:-http://localhost:8000/api/v1}
+      VITE_GOOGLE_CLIENT_ID: ${VITE_GOOGLE_CLIENT_ID:-}
     ports:
       - "5173:5173"
     volumes:

@@ -10,10 +10,13 @@ services:
       SECRET_KEY: ${SECRET_KEY:?SECRET_KEY is required}
       FRONTEND_URL: ${FRONTEND_URL:?FRONTEND_URL is required}
       ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-60}
-      SEED_USERS_FILE: /seed_users.json
+      ACCESS_ALLOWLIST_FILE: /allowlist.json
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      BREAKGLASS_ADMIN_EMAIL: ${BREAKGLASS_ADMIN_EMAIL:-}
+      BREAKGLASS_ADMIN_PASSWORD: ${BREAKGLASS_ADMIN_PASSWORD:-}
     volumes:
       - ${DATA_DIR:-/srv/neo-label/data}:/data
-      - ./seed_users.json:/seed_users.json:ro
+      - ./allowlist.json:/allowlist.json:ro
     expose:
       - "8000"
 
@@ -24,6 +27,7 @@ services:
       dockerfile: Dockerfile.prod
       args:
         VITE_API_URL: /api/v1
+        VITE_GOOGLE_CLIENT_ID: ${VITE_GOOGLE_CLIENT_ID:-}
     restart: unless-stopped
     depends_on:
       - backend
