@@ -10,7 +10,7 @@ datasets. Two keypoint schemas ship by default: **17-point infant pose
 <p align="center">
   <img src="docs/screenshots/login.png" alt="NeoLabel sign-in screen showing the project tagline and the two default keypoint schemas (Infant 17-pt and Rodent 7-pt)" width="820">
   <br>
-  <sub><em>Sign-in screen — the two default schemas and the supported workflow are surfaced right at the entry point.</em></sub>
+  <sub><em>Sign-in screen — the two default schemas and the supported workflow are surfaced right at the entry point. (Predates the Google Sign-In rollout: the password form shown here is now the break-glass admin fallback behind an "emergency" toggle — the primary control is a Google button. See "Run it" below.)</em></sub>
 </p>
 
 > Full specification (domain model, API reference, roadmap) lives in
@@ -112,27 +112,36 @@ Downloads are streamed with a progress bar and are cancellable.
 The recommended path is **Docker** — bundles FFmpeg, pins Python/Node
 versions, and mounts source code for hot-reload.
 
+Sign-in is **Google Sign-In** for everyone, restricted to an email
+allowlist, plus one emergency **break-glass admin** account (password)
+for when Google/OAuth is unavailable or misconfigured.
+
 ```bash
 cp .env.example .env
-cp seed_users.example.json seed_users.json
-# edit seed_users.json with the credentials you want
+cp allowlist.example.json allowlist.json
+# edit allowlist.json: the emails allowed to sign in, and their role
+# edit .env: GOOGLE_CLIENT_ID + VITE_GOOGLE_CLIENT_ID (a Google OAuth
+# Web Client ID — no client secret needed), and BREAKGLASS_ADMIN_EMAIL
+# / BREAKGLASS_ADMIN_PASSWORD for the emergency admin account
 docker compose up --build -d
 ```
 
 Then open <http://localhost:5173>. The API and its OpenAPI docs are at
 <http://localhost:8000/docs>.
 
-`seed_users.json` is read on every backend startup:
+`allowlist.json` (a list of `{email, role, name}`) is read fresh on
+every Google sign-in, and also at backend startup:
 
-- Listed users are **created** if they don't exist yet.
-- If a listed user already exists, **password and role are reconciled**
-  to match the file — so editing the password and restarting the
-  backend rotates credentials.
-- Users not listed are left untouched. To prune users that were
-  removed, use the reconciliation script (see SPEC).
+- Any listed email can sign in with Google; a matching user is
+  provisioned on first login (or pre-provisioned at startup, so an
+  admin can assign work to them before that first login).
+- Removing an email denies it on the very next sign-in attempt — no
+  restart needed. To also prune that user's now-stale record, use the
+  reconciliation script (see SPEC).
 
-If you skip the file entirely, no users are created automatically — use
-the register screen.
+Without `GOOGLE_CLIENT_ID` set, Google Sign-In is not configured and
+only the break-glass admin can sign in, via the "Entrar como admin
+(emergência)" link on the sign-in screen.
 
 For a native (non-Docker) setup, see [SPEC.md](./SPEC.md). Requires
 Python 3.12, Node 18+, and FFmpeg on `PATH`.

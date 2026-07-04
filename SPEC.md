@@ -43,12 +43,19 @@ Core records:
 
 | Record | Shape (essential fields) |
 |---|---|
-| User | `id, username, hashed_password, role, created_at` |
+| User | `id, username, email, google_sub, hashed_password, role, created_at` |
 | Project | `id, name, description, type, keypoint_schema, owner_id, created_at, labels[]` |
 | Label | `id, project_id, name, color, shortcut` |
 | Item | `id, project_id, payload, status, assigned_to, created_at` |
 | Annotation | `id, item_id, annotator_id, value, created_at, updated_at` |
 
+- `User.hashed_password` is optional — only the single break-glass admin
+  account has one (see §4 Auth). Google-provisioned accounts instead
+  carry `email` (lowercased; the login key) and `google_sub` (Google's
+  stable subject id, set on first Google login); both are `None` for
+  the break-glass admin. `username` is a display label (from the
+  Google profile name, else the email local-part) — it is no longer a
+  login key, except for the break-glass admin, who may type either.
 - `item.payload` is free-form JSON:
   - text items: `{text: str}`
   - pose frames: `{source_video: str, frame_index: int, image_url: str}`
@@ -134,6 +141,12 @@ data/
   `app/core/storage.py`).
 - **Single-process only.** Multiple worker processes require file locks
   or a migration to a real database — do not scale out without one.
+- **`allowlist.json`** (a list of `{email, role, name}`) lives
+  **outside** `DATA_DIR`, at `ACCESS_ALLOWLIST_FILE` (default
+  `../allowlist.json`, relative to the backend's working directory —
+  i.e. the repo root, the same spot the old `seed_users.json`
+  occupied). It replaces `seed_users.json` entirely and holds no
+  passwords. See §4 for how it's used at login.
 
 ### Schema evolution
 
@@ -153,10 +166,42 @@ user does not own returns **404** (to avoid leaking existence), with
 `projects.py` currently a known 403 exception (tracked to fix).
 
 ### Auth
-- `POST /auth/register` — `{username, password}` → 201 User
+
+Google Sign-In is the primary login for every regular user; exactly
+one **break-glass** local admin (password) exists for emergencies.
+
+- `POST /auth/google` — `{credential}` (the signed ID token Google
+  Identity Services returns to the browser) → `{access_token,
+  token_type}`. Verifies the token (signature, issuer, audience,
+  expiry) → requires `email_verified` → looks up the lowercased email
+  in the **allowlist** (`allowlist.json`, read fresh from disk on
+  every call — see §3) → `403` if absent → finds or provisions a
+  passwordless `UserRecord` by email (role, `google_sub`, and display
+  name synced from the allowlist/Google claims on every login) →
+  mints the same session JWT as `/auth/login`. `401` on an
+  invalid/expired/wrong-`aud` token; `403` if the email isn't verified
+  or isn't allowlisted (the message never reveals whether an allowlist
+  entry exists). Rate-limited `5/min` per client IP, like `/auth/login`.
 - `POST /auth/login` — form(`username`, `password`) →
-  `{access_token, token_type}`
-- `GET  /auth/me` — current user
+  `{access_token, token_type}`. Unchanged code, but now only succeeds
+  for accounts that **have** a `hashed_password` — in practice, only
+  the break-glass admin (seeded from `BREAKGLASS_ADMIN_EMAIL` /
+  `BREAKGLASS_ADMIN_PASSWORD` at startup). Google-provisioned users
+  have no password hash and get `401` here; `/auth/google` is their
+  only door. Matches by username **or** email, so the break-glass
+  admin can type either.
+- `GET  /auth/me` — current user (now includes `email`).
+- **Allowlist authorization, instant revocation.** Access is gated by
+  `allowlist.json` (§3), read fresh from disk on every `/auth/google`
+  call — removing an email denies that user on their very next login
+  attempt, no restart required. A restart is only needed to
+  *pre-provision* a newly-added email ahead of its first login (done
+  at startup, alongside the break-glass admin upsert — see §5).
+- **Fail-closed.** A missing, unreadable, or malformed (not a JSON
+  list) `allowlist.json` makes the loader return an empty map instead
+  of raising — every `/auth/google` call then `403`s, but the
+  break-glass admin still logs in via `/auth/login`, which never
+  touches the allowlist.
 
 ### Users (admin-visible directory)
 - `GET /users` — list all users (used by admin to assign videos)
@@ -266,8 +311,11 @@ user does not own returns **404** (to avoid leaking existence), with
 - Config via `pydantic-settings`, driven by `.env`.
 - FFmpeg must be on `PATH` for video upload; the Docker image bundles
   it.
-- Seed users reconciled on every startup from `SEED_USERS_FILE`
-  (default `seed_users.json`) — missing users are created, and each
-  listed user's password and role are updated in place when they differ
-  from the file (so the JSON is authoritative for listed accounts).
-  Users not in the file are left untouched.
+- On every startup, `seed_users()` (i) upserts the break-glass admin
+  from `BREAKGLASS_ADMIN_EMAIL` / `BREAKGLASS_ADMIN_PASSWORD` when both
+  are set — idempotent, creates it once and only rehashes the password
+  if it changed — and (ii) provisions a passwordless user per
+  `allowlist.json` entry (role and display name synced from the file).
+  Both steps are additive: existing records absent from the allowlist
+  are left dormant, never deleted — prune them with
+  `backend/scripts/reconcile_users.py` (`--apply` to commit).
