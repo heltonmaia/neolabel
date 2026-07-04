@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 
 from app.core import storage
+from app.core.config import settings
 from app.core.security import hash_password, verify_password
 from app.schemas.user import UserCreate, UserRecord, UserRole
 
@@ -84,10 +85,11 @@ def get_or_provision_google_user(
     google_sub from the caller (the allowlist / Google claims)."""
     users = storage.load_users()
     target = email.strip().lower()
+    breakglass = (settings.BREAKGLASS_ADMIN_EMAIL or "").strip().lower()
     existing = _find_by_email(users, email)
     if existing:
         changed = False
-        if existing.get("role") != role.value:
+        if target != breakglass and existing.get("role") != role.value:
             existing["role"] = role.value
             changed = True
         if google_sub and existing.get("google_sub") != google_sub:
@@ -137,6 +139,12 @@ def authenticate(login: str, password: str) -> UserRecord | None:
     user = get_by_username(login) or get_by_email(login)
     if not user or not user.hashed_password:
         return None
+    # Password login is restricted to the break-glass admin identity. Every
+    # other user authenticates via Google; a legacy record that still carries
+    # a password hash must NOT be able to log in.
+    breakglass = (settings.BREAKGLASS_ADMIN_EMAIL or "").strip().lower()
+    if not breakglass or (user.email or "").strip().lower() != breakglass:
+        return None
     if not verify_password(password, user.hashed_password):
         return None
     return user
@@ -150,31 +158,3 @@ def ensure_seed_user(
         return False
     create(UserCreate(username=username, password=password), role=role)
     return True
-
-
-def upsert_seed_user(
-    username: str, password: str, role: UserRole = UserRole.annotator
-) -> str:
-    """Create or reconcile a user against seed_users.json.
-
-    Returns one of: 'created', 'updated', 'unchanged'.
-    Updates password/role in place when they differ from the seed file, so the
-    JSON is always authoritative.
-    """
-    users = storage.load_users()
-    for u in users:
-        if u["username"].lower() != username.lower():
-            continue
-        changed = False
-        if not verify_password(password, u["hashed_password"]):
-            u["hashed_password"] = hash_password(password)
-            changed = True
-        if u.get("role") != role.value:
-            u["role"] = role.value
-            changed = True
-        if changed:
-            storage.save_users(users)
-            return "updated"
-        return "unchanged"
-    create(UserCreate(username=username, password=password), role=role)
-    return "created"

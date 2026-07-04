@@ -3,6 +3,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordRequestForm
+from google.auth.exceptions import GoogleAuthError
 
 from app.core.deps import CurrentUser
 from app.core.ratelimit import limiter
@@ -41,7 +42,12 @@ def google_login(request: Request, body: GoogleLogin) -> Token:
             "Invalid Google credential",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    if not idinfo.get("email_verified"):
+    except GoogleAuthError:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "Google sign-in is temporarily unavailable",
+        )
+    if idinfo.get("email_verified") is not True:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Google e-mail is not verified")
     email = (idinfo.get("email") or "").strip().lower()
     entry = allowlist_service.lookup(email)

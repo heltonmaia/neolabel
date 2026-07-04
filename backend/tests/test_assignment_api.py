@@ -24,22 +24,24 @@ def admin_project(client, admin_headers) -> dict:
 
 @pytest.fixture
 def neuro_headers(client) -> dict[str, str]:
+    from app.core.security import create_access_token
     from app.schemas.user import UserRole
     from app.services import user as user_service
 
     user_service.ensure_seed_user("neuromate1", "secret", UserRole.annotator)
-    r = client.post("/api/v1/auth/login", data={"username": "neuromate1", "password": "secret"})
-    return {"Authorization": f"Bearer {r.json()['access_token']}"}
+    u = user_service.get_by_username("neuromate1")
+    return {"Authorization": f"Bearer {create_access_token(str(u.id))}"}
 
 
 @pytest.fixture
 def neuro2_headers(client) -> dict[str, str]:
+    from app.core.security import create_access_token
     from app.schemas.user import UserRole
     from app.services import user as user_service
 
     user_service.ensure_seed_user("neuromate2", "secret", UserRole.annotator)
-    r = client.post("/api/v1/auth/login", data={"username": "neuromate2", "password": "secret"})
-    return {"Authorization": f"Bearer {r.json()['access_token']}"}
+    u = user_service.get_by_username("neuromate2")
+    return {"Authorization": f"Bearer {create_access_token(str(u.id))}"}
 
 
 def _neuro_id(client, admin_headers, username: str) -> int:

@@ -52,10 +52,11 @@ Core records:
 - `User.hashed_password` is optional — only the single break-glass admin
   account has one (see §4 Auth). Google-provisioned accounts instead
   carry `email` (lowercased; the login key) and `google_sub` (Google's
-  stable subject id, set on first Google login); both are `None` for
-  the break-glass admin. `username` is a display label (from the
-  Google profile name, else the email local-part) — it is no longer a
-  login key, except for the break-glass admin, who may type either.
+  stable subject id, set on first Google login); only `google_sub` is
+  `None` for the break-glass admin — its `email` is set (that's how it
+  can log in by typing its email). `username` is a display label (from
+  the Google profile name, else the email local-part) — it is no longer
+  a login key, except for the break-glass admin, who may type either.
 - `item.payload` is free-form JSON:
   - text items: `{text: str}`
   - pose frames: `{source_video: str, frame_index: int, image_url: str}`

@@ -34,15 +34,13 @@ def client() -> TestClient:
 
 
 def _seed_and_login(client, username: str, password: str, role: str = "annotator") -> dict:
+    from app.core.security import create_access_token
     from app.schemas.user import UserRole
     from app.services import user as user_service
 
     user_service.ensure_seed_user(username, password, UserRole(role))
-    r = client.post(
-        "/api/v1/auth/login",
-        data={"username": username, "password": password},
-    )
-    return {"Authorization": f"Bearer {r.json()['access_token']}"}
+    u = user_service.get_by_username(username)
+    return {"Authorization": f"Bearer {create_access_token(str(u.id))}"}
 
 
 @pytest.fixture

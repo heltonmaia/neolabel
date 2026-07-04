@@ -80,3 +80,16 @@ def test_malformed_role_forbidden(client, tmp_path, monkeypatch):
     _fake_google(monkeypatch, "a@x.com")
     r = client.post("/api/v1/auth/google", json={"credential": "tok"})
     assert r.status_code == 403  # not 500
+
+
+def test_google_transport_error_returns_503(client, tmp_path, monkeypatch):
+    _set_allowlist(tmp_path, monkeypatch, [{"email": "a@x.com", "role": "annotator"}])
+    from app.services import google_auth
+    from google.auth.exceptions import TransportError
+
+    def boom(credential):
+        raise TransportError("google unreachable")
+
+    monkeypatch.setattr(google_auth, "verify_google_id_token", boom)
+    r = client.post("/api/v1/auth/google", json={"credential": "tok"})
+    assert r.status_code == 503

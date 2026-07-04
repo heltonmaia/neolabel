@@ -25,7 +25,12 @@ def test_provision_is_idempotent_and_syncs_role():
     assert b.username == "ann"  # fallback display name = local part
 
 
-def test_upsert_password_admin_and_authenticate_by_email():
+def test_upsert_password_admin_and_authenticate_by_email(monkeypatch):
+    # authenticate() is break-glass-only — the admin's email must match
+    # BREAKGLASS_ADMIN_EMAIL for password login to succeed.
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "BREAKGLASS_ADMIN_EMAIL", "boss@x.com")
     status = user_service.upsert_password_admin("boss@x.com", "StrongPass!")
     assert status == "created"
     assert user_service.upsert_password_admin("boss@x.com", "StrongPass!") == "unchanged"

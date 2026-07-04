@@ -28,8 +28,13 @@ export default function LoginPage() {
       const { access_token } = await loginWithGoogle(credential);
       setToken(access_token);
       navigate('/projects');
-    } catch {
-      setError('This Google account is not authorized.');
+    } catch (err) {
+      const status = (err as { response?: { status?: number } })?.response?.status;
+      setError(
+        status === 403
+          ? 'This Google account is not authorized.'
+          : 'Sign-in failed. Please try again.',
+      );
     } finally {
       setLoading(false);
     }
