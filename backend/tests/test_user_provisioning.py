@@ -51,3 +51,17 @@ def test_empty_email_never_matches_passwordless_user():
     assert user_service.get_by_email("") is None
     assert user_service.get_by_email("   ") is None
     assert user_service.authenticate("", "pw12") is None
+
+
+def test_google_provision_does_not_downgrade_breakglass_role(monkeypatch):
+    # The break-glass admin's role must survive an allowlist/Google-login role
+    # sync — get_or_provision_google_user skips the role write for that email.
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "BREAKGLASS_ADMIN_EMAIL", "boss@x.com")
+    user_service.upsert_password_admin("boss@x.com", "StrongPass!")  # role=admin
+    u = user_service.get_or_provision_google_user(
+        email="boss@x.com", name=None, google_sub="sub-x", role=UserRole.annotator
+    )
+    assert u.role == UserRole.admin  # NOT downgraded to annotator
+    assert u.google_sub == "sub-x"  # google_sub still set
