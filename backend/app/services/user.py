@@ -38,16 +38,104 @@ def create(data: UserCreate, role: UserRole = UserRole.annotator) -> UserRecord:
     return _to_record(record)
 
 
-def authenticate(username: str, password: str) -> UserRecord | None:
-    user = get_by_username(username)
-    if not user or not verify_password(password, user.hashed_password):
+def get_by_email(email: str) -> UserRecord | None:
+    target = email.strip().lower()
+    for u in storage.load_users():
+        if (u.get("email") or "").lower() == target:
+            return _to_record(u)
+    return None
+
+
+def _display_name(name: str | None, email: str) -> str:
+    if name and name.strip():
+        return name.strip()
+    return email.split("@", 1)[0]
+
+
+def _new_record(
+    username: str,
+    email: str | None,
+    role: UserRole,
+    google_sub: str | None = None,
+    hashed_password: str | None = None,
+) -> dict:
+    return {
+        "id": storage.next_id("users"),
+        "username": username,
+        "email": email.lower() if email else None,
+        "google_sub": google_sub,
+        "hashed_password": hashed_password,
+        "role": role.value,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+def get_or_provision_google_user(
+    email: str, name: str | None, google_sub: str | None, role: UserRole
+) -> UserRecord:
+    """Find a user by email or create a passwordless one. Syncs role and
+    google_sub from the caller (the allowlist / Google claims)."""
+    users = storage.load_users()
+    target = email.strip().lower()
+    for u in users:
+        if (u.get("email") or "").lower() != target:
+            continue
+        changed = False
+        if u.get("role") != role.value:
+            u["role"] = role.value
+            changed = True
+        if google_sub and u.get("google_sub") != google_sub:
+            u["google_sub"] = google_sub
+            changed = True
+        if changed:
+            storage.save_users(users)
+        return _to_record(u)
+    record = _new_record(_display_name(name, target), target, role, google_sub=google_sub)
+    users.append(record)
+    storage.save_users(users)
+    return _to_record(record)
+
+
+def upsert_password_admin(email: str, password: str) -> str:
+    """Create or reconcile the break-glass admin (password account, keyed by
+    email). Returns 'created' | 'updated' | 'unchanged'."""
+    users = storage.load_users()
+    target = email.strip().lower()
+    for u in users:
+        if (u.get("email") or "").lower() != target:
+            continue
+        changed = False
+        if not u.get("hashed_password") or not verify_password(password, u["hashed_password"]):
+            u["hashed_password"] = hash_password(password)
+            changed = True
+        if u.get("role") != "admin":
+            u["role"] = "admin"
+            changed = True
+        if changed:
+            storage.save_users(users)
+            return "updated"
+        return "unchanged"
+    record = _new_record(
+        _display_name(None, target),
+        target,
+        UserRole.admin,
+        hashed_password=hash_password(password),
+    )
+    users.append(record)
+    storage.save_users(users)
+    return "created"
+
+
+def authenticate(login: str, password: str) -> UserRecord | None:
+    user = get_by_username(login) or get_by_email(login)
+    if not user or not user.hashed_password:
+        return None
+    if not verify_password(password, user.hashed_password):
         return None
     return user
 
 
-def ensure_seed_user(
-    username: str, password: str, role: UserRole = UserRole.annotator
-) -> bool:
+def ensure_seed_user(username: str, password: str, role: UserRole = UserRole.annotator) -> bool:
     """Create the default user if it doesn't exist yet. Returns True if created."""
     if get_by_username(username):
         return False
@@ -55,9 +143,7 @@ def ensure_seed_user(
     return True
 
 
-def upsert_seed_user(
-    username: str, password: str, role: UserRole = UserRole.annotator
-) -> str:
+def upsert_seed_user(username: str, password: str, role: UserRole = UserRole.annotator) -> str:
     """Create or reconcile a user against seed_users.json.
 
     Returns one of: 'created', 'updated', 'unchanged'.
