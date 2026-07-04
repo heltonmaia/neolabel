@@ -1,8 +1,11 @@
 """Email allowlist: who may sign in via Google, and with what role.
 
 Read fresh from disk on every call (the file is tiny) so that removing an
-email revokes access on the next login without a restart. Missing or
-unreadable file -> empty allowlist (fail-closed: nobody is authorized).
+email revokes access on the next login without a restart. Missing,
+unreadable, or malformed/wrong-shape file -> empty allowlist (fail-closed:
+nobody is authorized). load_allowlist() must never raise: it runs at app
+startup and gates every login, so any failure degrades to an empty
+allowlist instead of crashing the process.
 """
 
 from __future__ import annotations
@@ -30,12 +33,20 @@ def load_allowlist() -> dict[str, dict]:
         return {}
     try:
         entries = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as e:
+    except (OSError, ValueError) as e:  # ValueError covers JSONDecodeError and UnicodeDecodeError
         log.error("Failed to read allowlist %s: %s — denying all Google logins.", path, e)
+        return {}
+    if not isinstance(entries, list):
+        log.error("Allowlist %s is not a JSON list — denying all Google logins.", path)
         return {}
     result: dict[str, dict] = {}
     for entry in entries:
-        email = (entry.get("email") or "").strip().lower()
+        if not isinstance(entry, dict):
+            continue
+        email_raw = entry.get("email")
+        if not isinstance(email_raw, str):
+            continue
+        email = email_raw.strip().lower()
         if not email:
             continue
         result[email] = {
