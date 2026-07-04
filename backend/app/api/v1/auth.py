@@ -1,3 +1,4 @@
+import logging
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -10,6 +11,8 @@ from app.schemas.user import GoogleLogin, Token, UserRead, UserRole
 from app.services import allowlist as allowlist_service
 from app.services import google_auth
 from app.services import user as user_service
+
+log = logging.getLogger("neolabel")
 
 router = APIRouter()
 
@@ -40,11 +43,15 @@ def google_login(request: Request, body: GoogleLogin) -> Token:
         )
     if not idinfo.get("email_verified"):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Google e-mail is not verified")
-    email = (idinfo.get("email") or "").lower()
+    email = (idinfo.get("email") or "").strip().lower()
     entry = allowlist_service.lookup(email)
     if not entry:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Not authorized")
-    role = UserRole(entry.get("role", "annotator"))
+    try:
+        role = UserRole(entry.get("role", "annotator"))
+    except ValueError:
+        log.error("Allowlist entry for %s has an invalid role: %r", email, entry.get("role"))
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Not authorized")
     user = user_service.get_or_provision_google_user(
         email=email,
         name=idinfo.get("name"),

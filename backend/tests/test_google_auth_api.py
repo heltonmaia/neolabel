@@ -73,3 +73,10 @@ def test_revocation_after_removal(client, tmp_path, monkeypatch):
     assert client.post("/api/v1/auth/google", json={"credential": "t"}).status_code == 200
     _set_allowlist(tmp_path, monkeypatch, [])
     assert client.post("/api/v1/auth/google", json={"credential": "t"}).status_code == 403
+
+
+def test_malformed_role_forbidden(client, tmp_path, monkeypatch):
+    _set_allowlist(tmp_path, monkeypatch, [{"email": "a@x.com", "role": "superadmin"}])
+    _fake_google(monkeypatch, "a@x.com")
+    r = client.post("/api/v1/auth/google", json={"credential": "tok"})
+    assert r.status_code == 403  # not 500
