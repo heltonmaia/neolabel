@@ -20,6 +20,7 @@ build/
 .superpowers/
 *.egg-info/
 seed_users.json
+allowlist.json
 *.tsbuildinfo
 frontend/src/**/*.js
 .env.prod

@@ -1,0 +1,4 @@
+[
+  { "email": "you@example.com", "role": "admin", "name": "Your Name" },
+  { "email": "annotator1@gmail.com", "role": "annotator" }
+]
