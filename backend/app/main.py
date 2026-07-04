@@ -1,4 +1,3 @@
-import json
 import logging
 from pathlib import Path
 
@@ -12,6 +11,7 @@ from app.api.v1 import api_router
 from app.core.config import settings
 from app.core.ratelimit import limiter
 from app.schemas.user import UserRole
+from app.services import allowlist as allowlist_service
 from app.services import user as user_service
 
 log = logging.getLogger("neolabel")
@@ -22,35 +22,29 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 
 @app.on_event("startup")
-def seed_default_users() -> None:
-    """Seed users from SEED_USERS_FILE (JSON). Missing file → no seeding."""
-    seed_path = Path(settings.SEED_USERS_FILE)
-    if not seed_path.is_absolute():
-        seed_path = Path.cwd() / seed_path
-    if not seed_path.exists():
-        log.warning(
-            "No seed users file at %s — skipping. Register users via /auth/register "
-            "or create the file from seed_users.example.json.",
-            seed_path,
+def seed_users() -> None:
+    """Seed the break-glass admin (from env) and provision allowlist users.
+
+    Additive: existing records (incl. legacy password users) are left in
+    place. Passwordless allowlist users are pre-created so admins can
+    assign work to them before their first Google login.
+    """
+    if settings.BREAKGLASS_ADMIN_EMAIL and settings.BREAKGLASS_ADMIN_PASSWORD:
+        status = user_service.upsert_password_admin(
+            settings.BREAKGLASS_ADMIN_EMAIL, settings.BREAKGLASS_ADMIN_PASSWORD
         )
-        return
-    try:
-        entries = json.loads(seed_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as e:
-        log.error("Failed to read %s: %s", seed_path, e)
-        return
-    for entry in entries:
+        if status != "unchanged":
+            log.warning("break-glass admin: %s (%s)", status, settings.BREAKGLASS_ADMIN_EMAIL)
+
+    for email, entry in allowlist_service.load_allowlist().items():
         try:
             role = UserRole(entry.get("role", "annotator"))
-            status = user_service.upsert_seed_user(
-                entry["username"], entry["password"], role
-            )
-            if status != "unchanged":
-                log.warning(
-                    "seed_users: %s user %s (role=%s)", status, entry["username"], role.value
-                )
-        except (KeyError, ValueError) as e:
-            log.error("Skipping malformed seed entry %r: %s", entry, e)
+        except ValueError:
+            log.error("Skipping allowlist entry with invalid role: %r", entry)
+            continue
+        user_service.get_or_provision_google_user(
+            email=email, name=entry.get("name"), google_sub=None, role=role
+        )
 
 app.add_middleware(
     CORSMiddleware,
