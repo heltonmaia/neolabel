@@ -16,11 +16,13 @@ class UserCreate(BaseModel):
 
 
 class UserRecord(BaseModel):
-    """Full user record as stored on disk (includes hash)."""
+    """Full user record as stored on disk (may include a password hash)."""
 
     id: int
     username: str
-    hashed_password: str
+    email: str | None = None
+    google_sub: str | None = None
+    hashed_password: str | None = None
     role: UserRole = UserRole.annotator
     created_at: datetime
 
@@ -30,6 +32,7 @@ class UserRead(BaseModel):
 
     id: int
     username: str
+    email: str | None = None
     role: UserRole
     created_at: datetime
 
@@ -37,3 +40,7 @@ class UserRead(BaseModel):
 class Token(BaseModel):
     access_token: str
     token_type: str = "bearer"
+
+
+class GoogleLogin(BaseModel):
+    credential: str
