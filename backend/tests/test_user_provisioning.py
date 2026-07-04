@@ -38,3 +38,11 @@ def test_google_user_cannot_authenticate_without_password():
         email="ann@x.com", name=None, google_sub="s", role=UserRole.annotator
     )
     assert user_service.authenticate("ann@x.com", "whatever") is None
+
+
+def test_empty_email_never_matches_passwordless_user():
+    from app.schemas.user import UserCreate
+    user_service.create(UserCreate(username="legacy", password="pw12"))
+    assert user_service.get_by_email("") is None
+    assert user_service.get_by_email("   ") is None
+    assert user_service.authenticate("", "pw12") is None

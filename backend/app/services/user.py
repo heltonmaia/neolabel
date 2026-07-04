@@ -38,12 +38,19 @@ def create(data: UserCreate, role: UserRole = UserRole.annotator) -> UserRecord:
     return _to_record(record)
 
 
-def get_by_email(email: str) -> UserRecord | None:
-    target = email.strip().lower()
-    for u in storage.load_users():
+def _find_by_email(users: list[dict], email: str) -> dict | None:
+    target = (email or "").strip().lower()
+    if not target:
+        return None
+    for u in users:
         if (u.get("email") or "").lower() == target:
-            return _to_record(u)
+            return u
     return None
+
+
+def get_by_email(email: str) -> UserRecord | None:
+    u = _find_by_email(storage.load_users(), email)
+    return _to_record(u) if u else None
 
 
 def _display_name(name: str | None, email: str) -> str:
@@ -77,19 +84,18 @@ def get_or_provision_google_user(
     google_sub from the caller (the allowlist / Google claims)."""
     users = storage.load_users()
     target = email.strip().lower()
-    for u in users:
-        if (u.get("email") or "").lower() != target:
-            continue
+    existing = _find_by_email(users, email)
+    if existing:
         changed = False
-        if u.get("role") != role.value:
-            u["role"] = role.value
+        if existing.get("role") != role.value:
+            existing["role"] = role.value
             changed = True
-        if google_sub and u.get("google_sub") != google_sub:
-            u["google_sub"] = google_sub
+        if google_sub and existing.get("google_sub") != google_sub:
+            existing["google_sub"] = google_sub
             changed = True
         if changed:
             storage.save_users(users)
-        return _to_record(u)
+        return _to_record(existing)
     record = _new_record(_display_name(name, target), target, role, google_sub=google_sub)
     users.append(record)
     storage.save_users(users)
@@ -101,15 +107,16 @@ def upsert_password_admin(email: str, password: str) -> str:
     email). Returns 'created' | 'updated' | 'unchanged'."""
     users = storage.load_users()
     target = email.strip().lower()
-    for u in users:
-        if (u.get("email") or "").lower() != target:
-            continue
+    existing = _find_by_email(users, email)
+    if existing:
         changed = False
-        if not u.get("hashed_password") or not verify_password(password, u["hashed_password"]):
-            u["hashed_password"] = hash_password(password)
+        if not existing.get("hashed_password") or not verify_password(
+            password, existing["hashed_password"]
+        ):
+            existing["hashed_password"] = hash_password(password)
             changed = True
-        if u.get("role") != "admin":
-            u["role"] = "admin"
+        if existing.get("role") != "admin":
+            existing["role"] = "admin"
             changed = True
         if changed:
             storage.save_users(users)
@@ -135,7 +142,9 @@ def authenticate(login: str, password: str) -> UserRecord | None:
     return user
 
 
-def ensure_seed_user(username: str, password: str, role: UserRole = UserRole.annotator) -> bool:
+def ensure_seed_user(
+    username: str, password: str, role: UserRole = UserRole.annotator
+) -> bool:
     """Create the default user if it doesn't exist yet. Returns True if created."""
     if get_by_username(username):
         return False
@@ -143,7 +152,9 @@ def ensure_seed_user(username: str, password: str, role: UserRole = UserRole.ann
     return True
 
 
-def upsert_seed_user(username: str, password: str, role: UserRole = UserRole.annotator) -> str:
+def upsert_seed_user(
+    username: str, password: str, role: UserRole = UserRole.annotator
+) -> str:
     """Create or reconcile a user against seed_users.json.
 
     Returns one of: 'created', 'updated', 'unchanged'.
