@@ -7,7 +7,7 @@
 #
 # What goes in the tarball:
 #   - /root/work/neo-label-data/       (all items, frames, videos, annotations, users.json)
-#   - /root/work/neo-label/seed_users.json
+#   - /root/work/neo-label/allowlist.json
 #   - /root/work/neo-label/.env.prod
 #
 # Install as nightly cron (run as root on the VPS):
@@ -26,7 +26,7 @@ DATA_DIR="${DATA_DIR:-/root/work/neo-label-data}"
 REPO_DIR="${REPO_DIR:-/root/work/neo-label}"
 RETENTION_COUNT="${RETENTION_COUNT:-5}"
 
-for path in "$DATA_DIR" "$REPO_DIR/seed_users.json" "$REPO_DIR/.env.prod"; do
+for path in "$DATA_DIR" "$REPO_DIR/allowlist.json" "$REPO_DIR/.env.prod"; do
   [[ -e "$path" ]] || { echo "missing: $path" >&2; exit 1; }
 done
 
@@ -38,7 +38,7 @@ out="$BACKUP_DIR/neo-label-$ts.tar.gz"
 
 tar -czf "$out" \
   "$DATA_DIR" \
-  "$REPO_DIR/seed_users.json" \
+  "$REPO_DIR/allowlist.json" \
   "$REPO_DIR/.env.prod"
 
 chmod 600 "$out"
