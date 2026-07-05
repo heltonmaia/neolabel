@@ -15,12 +15,8 @@ class Settings(BaseSettings):
     GOOGLE_CLIENT_ID: str = ""
     # Email allowlist mapping email -> role (relative to backend CWD)
     ACCESS_ALLOWLIST_FILE: str = "../allowlist.json"
-    # Break-glass local admin (empty -> not seeded)
-    BREAKGLASS_ADMIN_EMAIL: str = ""
-    BREAKGLASS_ADMIN_PASSWORD: str = ""
 
-    # Emergency email-code access (break-glass v2). BREAKGLASS_* above are
-    # removed in a later task once the password path is gone.
+    # Emergency email-code access (break-glass v2).
     RESEND_API_KEY: str = ""
     EMAIL_FROM: str = ""
     EMERGENCY_ADMIN_EMAIL: str = ""

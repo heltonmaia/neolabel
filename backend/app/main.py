@@ -23,19 +23,12 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 @app.on_event("startup")
 def seed_users() -> None:
-    """Seed the break-glass admin (from env) and provision allowlist users.
+    """Provision allowlist users.
 
     Additive: existing records (incl. legacy password users) are left in
     place. Passwordless allowlist users are pre-created so admins can
     assign work to them before their first Google login.
     """
-    if settings.BREAKGLASS_ADMIN_EMAIL and settings.BREAKGLASS_ADMIN_PASSWORD:
-        status = user_service.upsert_password_admin(
-            settings.BREAKGLASS_ADMIN_EMAIL, settings.BREAKGLASS_ADMIN_PASSWORD
-        )
-        if status != "unchanged":
-            log.warning("break-glass admin: %s (%s)", status, settings.BREAKGLASS_ADMIN_EMAIL)
-
     for email, entry in allowlist_service.load_allowlist().items():
         try:
             role = UserRole(entry.get("role", "annotator"))

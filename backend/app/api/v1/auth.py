@@ -1,8 +1,6 @@
 import logging
-from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
-from fastapi.security import OAuth2PasswordRequestForm
+from fastapi import APIRouter, HTTPException, Request, status
 from google.auth.exceptions import GoogleAuthError
 
 from app.core.deps import CurrentUser
@@ -24,19 +22,6 @@ from app.services import user as user_service
 log = logging.getLogger("neolabel")
 
 router = APIRouter()
-
-
-@router.post("/login", response_model=Token)
-@limiter.limit("5/minute")
-def login(request: Request, form: Annotated[OAuth2PasswordRequestForm, Depends()]) -> Token:
-    user = user_service.authenticate(form.username, form.password)
-    if not user:
-        raise HTTPException(
-            status.HTTP_401_UNAUTHORIZED,
-            "Incorrect username or password",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    return Token(access_token=create_access_token(str(user.id)))
 
 
 @router.post("/google", response_model=Token)

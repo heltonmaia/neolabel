@@ -11,10 +11,8 @@ def _allowlist(tmp_path, monkeypatch, entries):
     monkeypatch.setattr(settings, "ACCESS_ALLOWLIST_FILE", str(f))
 
 
-def test_reconcile_removes_only_unlisted_non_breakglass(tmp_path, monkeypatch):
-    monkeypatch.setattr(settings, "BREAKGLASS_ADMIN_EMAIL", "boss@x.com")
+def test_reconcile_removes_only_unlisted_users(tmp_path, monkeypatch):
     _allowlist(tmp_path, monkeypatch, [{"email": "keep@x.com", "role": "annotator"}])
-    user_service.upsert_password_admin("boss@x.com", "StrongPass!")
     user_service.get_or_provision_google_user("keep@x.com", None, None, UserRole.annotator)
     user_service.get_or_provision_google_user("drop@x.com", None, None, UserRole.annotator)
 
@@ -28,4 +26,3 @@ def test_reconcile_removes_only_unlisted_non_breakglass(tmp_path, monkeypatch):
     assert {u["email"] for u in removed} == {"drop@x.com"}
     assert user_service.get_by_email("drop@x.com") is None
     assert user_service.get_by_email("keep@x.com") is not None
-    assert user_service.get_by_email("boss@x.com") is not None  # break-glass preserved

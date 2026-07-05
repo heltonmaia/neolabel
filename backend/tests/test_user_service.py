@@ -21,16 +21,6 @@ def test_get_by_id():
     assert user_service.get_by_id(999) is None
 
 
-def test_authenticate_rejects_non_breakglass_account():
-    # Password login is break-glass-only (see user_service.authenticate) — a
-    # plain, non-breakglass account must never authenticate, even with the
-    # correct password.
-    user_service.create(UserCreate(username="alice", password="pw12345"))
-    assert user_service.authenticate("alice", "pw12345") is None
-    assert user_service.authenticate("alice", "wrong") is None
-    assert user_service.authenticate("ghost", "pw12345") is None
-
-
 def test_ensure_seed_user_idempotent():
     assert user_service.ensure_seed_user("seed", "pw12345") is True
     assert user_service.ensure_seed_user("seed", "pw12345") is False
