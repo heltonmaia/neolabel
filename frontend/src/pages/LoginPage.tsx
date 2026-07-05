@@ -115,7 +115,7 @@ export default function LoginPage() {
             <p className="mt-1 text-sm text-slate-500">Access your annotation workspace.</p>
           </div>
 
-          <div className="flex justify-center">
+          <div className="flex justify-start">
             <GoogleLogin
               onSuccess={(cred) => onGoogle(cred.credential)}
               onError={() => setError('Google sign-in failed. Please try again.')}
