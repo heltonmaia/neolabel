@@ -55,111 +55,124 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-full grid lg:grid-cols-2">
-      <aside className="relative hidden lg:flex flex-col justify-between p-10 overflow-hidden bg-gradient-to-br from-sky-50 via-amber-50 to-rose-50">
-        <div className="absolute inset-0 -z-10 opacity-60">
-          <div className="absolute top-10 -left-20 h-72 w-72 rounded-full bg-sky-200 blur-3xl" />
-          <div className="absolute bottom-0 right-0 h-80 w-80 rounded-full bg-amber-200 blur-3xl" />
-          <div className="absolute top-1/3 right-1/3 h-56 w-56 rounded-full bg-rose-200 blur-3xl" />
+    <div className="min-h-full grid lg:grid-cols-[1.05fr_1fr]">
+      <aside className="relative isolate hidden lg:flex flex-col justify-between overflow-hidden border-r border-slate-200/70 bg-slate-50 p-12">
+        <div
+          aria-hidden="true"
+          className="dot-grid absolute inset-0 -z-10"
+        />
+        <div
+          aria-hidden="true"
+          className="absolute inset-0 -z-10 bg-gradient-to-b from-white/30 via-transparent to-white/85"
+        />
+
+        <div className="flex items-center gap-2.5 text-slate-900">
+          <LogoMark />
+          <span className="text-lg font-semibold tracking-tight">NeoLabel</span>
         </div>
 
-        <div>
-          <div className="flex items-center gap-2 text-sky-900">
-            <LogoMark />
-            <span className="text-lg font-semibold tracking-tight">NeoLabel</span>
-          </div>
-        </div>
-
-        <div className="flex items-end justify-center gap-6 -my-4">
-          <figure className="flex flex-col items-center w-[200px]">
+        <div className="flex items-end justify-center gap-10">
+          <figure className="flex w-[190px] flex-col items-center">
             <PoseHero />
-            <figcaption className="mt-1 text-xs font-medium text-slate-600">
-              Infant · 17 keypoints
+            <figcaption className="mt-3 text-[11px] font-medium uppercase tracking-[0.12em] text-slate-500">
+              Infant · 17 pts
             </figcaption>
           </figure>
-          <figure className="flex flex-col items-center w-[150px]">
+          <figure className="flex w-[140px] flex-col items-center">
             <RodentHero />
-            <figcaption className="mt-1 text-xs font-medium text-slate-600">
-              Rodent · 7 keypoints
+            <figcaption className="mt-3 text-[11px] font-medium uppercase tracking-[0.12em] text-slate-500">
+              Rodent · 7 pts
             </figcaption>
           </figure>
         </div>
 
         <div className="max-w-md">
-          <h2 className="text-2xl font-semibold text-slate-900 leading-snug">
+          <h2 className="text-[27px] font-semibold leading-[1.15] tracking-tight text-slate-900">
             Video-based pose annotation, built for research.
           </h2>
-          <p className="mt-3 text-slate-700">
-            Label video frames, assign work to annotators, and export
-            ready-to-train datasets. Two keypoint schemas ship by default:
-            17-point infant pose (COCO) and 7-point rodent pose for
-            behavioral assays such as Open Field and Elevated Plus Maze.
+          <p className="mt-4 text-sm leading-relaxed text-slate-600">
+            Label frames, assign work to annotators, and export ready-to-train
+            datasets — 17-point infant pose (COCO) and 7-point rodent pose for
+            assays like Open Field and Elevated Plus Maze.
           </p>
-          <div className="mt-6 flex flex-wrap gap-2 text-xs">
+          <div className="mt-6 flex flex-wrap gap-2 text-[11px]">
             <Chip>Infant · 17-pt COCO</Chip>
             <Chip>Rodent · 7-pt (OF / EPM)</Chip>
-            <Chip>FFmpeg frame extraction</Chip>
+            <Chip>FFmpeg frames</Chip>
             <Chip>YOLO-pose export</Chip>
           </div>
         </div>
       </aside>
 
-      <main className="flex items-center justify-center p-6 lg:p-10">
-        <div className="w-full max-w-sm bg-white p-8 rounded-xl shadow-sm ring-1 ring-slate-200 space-y-5">
-          <div className="flex items-center gap-2 lg:hidden">
+      <main className="flex items-center justify-center bg-white px-6 py-10">
+        <div className="w-full max-w-[340px]">
+          <div className="flex items-center gap-2.5 text-slate-900 lg:hidden">
             <LogoMark />
-            <span className="text-lg font-semibold tracking-tight text-sky-900">NeoLabel</span>
-          </div>
-          <div>
-            <h1 className="text-2xl font-semibold text-slate-900">Sign in</h1>
-            <p className="mt-1 text-sm text-slate-500">Access your annotation workspace.</p>
+            <span className="text-lg font-semibold tracking-tight">NeoLabel</span>
           </div>
 
-          <div className="flex justify-start">
+          <div className="mt-10 lg:mt-0">
+            <h1 className="text-xl font-semibold tracking-tight text-slate-900">
+              Sign in to your workspace
+            </h1>
+            <p className="mt-2 text-sm text-slate-500">
+              Continue with your authorized Google account.
+            </p>
+          </div>
+
+          <div className="mt-7 flex">
             <GoogleLogin
               onSuccess={(cred) => onGoogle(cred.credential)}
               onError={() => setError('Google sign-in failed. Please try again.')}
             />
           </div>
 
-          {error && <p className="text-red-600 text-sm">{error}</p>}
+          {error && (
+            <p className="mt-4 text-sm text-red-600" role="alert">
+              {error}
+            </p>
+          )}
+
+          <div className="mt-10 flex items-center gap-3">
+            <span className="h-px flex-1 bg-slate-200" />
+            <span className="text-[11px] font-medium uppercase tracking-[0.12em] text-slate-400">
+              Admin
+            </span>
+            <span className="h-px flex-1 bg-slate-200" />
+          </div>
 
           <button
             type="button"
             onClick={() => setShowAdmin((v) => !v)}
-            className="text-xs text-slate-400 hover:text-slate-600 underline underline-offset-2"
+            className="mt-3 w-full text-xs text-slate-400 transition-colors hover:text-slate-600"
           >
-            Entrar como admin (emergência)
+            Emergency admin sign-in
           </button>
 
           {showAdmin && (
-            <form onSubmit={handleSubmit(onSubmit)} className="space-y-4 border-t border-slate-100 pt-4">
-              <label className="block space-y-1">
-                <span className="text-xs font-medium text-slate-600 uppercase tracking-wide">Admin e-mail</span>
+            <form onSubmit={handleSubmit(onSubmit)} className="mt-4 space-y-3">
+              <label className="block space-y-1.5">
+                <span className="text-xs font-medium text-slate-600">Admin e-mail</span>
                 <input
                   {...register('username', { required: true })}
                   autoComplete="username"
                   placeholder="admin@example.com"
-                  className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm
-                             focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500"
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30"
                 />
               </label>
-              <label className="block space-y-1">
-                <span className="text-xs font-medium text-slate-600 uppercase tracking-wide">Password</span>
+              <label className="block space-y-1.5">
+                <span className="text-xs font-medium text-slate-600">Password</span>
                 <input
                   {...register('password', { required: true })}
                   type="password"
                   autoComplete="current-password"
                   placeholder="••••••••"
-                  className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm
-                             focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500"
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30"
                 />
               </label>
               <button
                 disabled={loading}
-                className="w-full py-2.5 rounded-md text-white font-medium
-                           bg-gradient-to-r from-sky-600 to-sky-700 hover:from-sky-700 hover:to-sky-800
-                           disabled:opacity-60 disabled:cursor-not-allowed transition"
+                className="w-full rounded-lg bg-slate-900 py-2.5 text-sm font-medium text-white transition-colors hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {loading ? 'Signing in…' : 'Sign in as admin'}
               </button>
@@ -173,7 +186,7 @@ export default function LoginPage() {
 
 function Chip({ children }: { children: React.ReactNode }) {
   return (
-    <span className="px-2.5 py-1 rounded-full bg-white/70 backdrop-blur text-slate-700 ring-1 ring-slate-200">
+    <span className="rounded-full bg-white px-3 py-1 text-slate-600 ring-1 ring-slate-200/80">
       {children}
     </span>
   );
