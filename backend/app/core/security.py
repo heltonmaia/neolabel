@@ -1,3 +1,5 @@
+import hashlib
+import hmac
 from datetime import datetime, timedelta, timezone
 
 import bcrypt
@@ -31,3 +33,11 @@ def decode_token(token: str) -> str | None:
         return payload.get("sub")
     except JWTError:
         return None
+
+
+def hash_emergency_code(code: str) -> str:
+    """HMAC-SHA256 of a one-time code, keyed by SECRET_KEY, hex-encoded. A
+    leaked code file can't be brute-forced without the key."""
+    return hmac.new(
+        settings.SECRET_KEY.encode("utf-8"), code.encode("utf-8"), hashlib.sha256
+    ).hexdigest()
