@@ -103,6 +103,23 @@ def test_cooldown_holds_after_burn(admin_email, capture_code, monkeypatch):
     assert "code" not in capture_code  # cooldown still holds — no regeneration
 
 
+def test_request_code_swallows_send_failure(admin_email, monkeypatch):
+    """A broken email transport must not raise out of request_code, and the
+    code should still be stored (generation/storage happens before the send,
+    which runs outside the lock and is best-effort)."""
+    from app.core import storage
+    from app.services import emergency
+
+    def fake_send(to, code):
+        raise RuntimeError("resend is down")
+
+    monkeypatch.setattr("app.services.emergency.email_service.send_emergency_code", fake_send)
+
+    emergency.request_code(admin_email)  # must not raise
+
+    assert storage.load_emergency_code() is not None
+
+
 def test_verify_expired_code_fails(admin_email, capture_code, monkeypatch):
     monkeypatch.setattr(settings, "EMERGENCY_CODE_TTL_MINUTES", 0)
     from app.core import storage

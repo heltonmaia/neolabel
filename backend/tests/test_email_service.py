@@ -25,3 +25,4 @@ def test_send_emergency_code_posts_to_resend(monkeypatch):
     assert captured["json"]["from"] == "NeoLabel <x@y.com>"
     assert captured["json"]["to"] == ["owner@example.com"]
     assert "123456" in captured["json"]["text"]
+    assert str(settings.EMERGENCY_CODE_TTL_MINUTES) in captured["json"]["text"]

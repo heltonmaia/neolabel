@@ -1,18 +1,13 @@
 """Transactional email via Resend (HTTPS API).
 
-Thin + mockable: tests monkeypatch `send_emergency_code`, so no network call
-happens in the suite. Resend (not SMTP) because the Contabo VPS blocks
-outbound SMTP ports.
+Kept thin so tests can patch the outbound call without touching the network.
+Resend (not SMTP) because the Contabo VPS blocks outbound SMTP ports.
 """
 from __future__ import annotations
-
-import logging
 
 import requests
 
 from app.core.config import settings
-
-log = logging.getLogger("neolabel")
 
 _RESEND_ENDPOINT = "https://api.resend.com/emails"
 

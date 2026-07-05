@@ -9,6 +9,7 @@ from __future__ import annotations
 import hmac
 import logging
 import secrets
+import threading
 from datetime import datetime, timedelta, timezone
 
 from app.core import storage
@@ -19,6 +20,8 @@ from app.services import email as email_service
 from app.services import user as user_service
 
 log = logging.getLogger("neolabel")
+
+_LOCK = threading.Lock()
 
 
 def _now() -> datetime:
@@ -36,28 +39,31 @@ def request_code(email: str) -> None:
     nothing so the endpoint responds identically for any email."""
     if not _is_admin_email(email):
         return
-    existing = storage.load_emergency_code()
-    if existing:
-        created = datetime.fromisoformat(existing["created_at"])
-        if _now() - created < timedelta(seconds=settings.EMERGENCY_CODE_COOLDOWN_SECONDS):
-            return
-    admin = settings.EMERGENCY_ADMIN_EMAIL.strip().lower()
-    code = f"{secrets.randbelow(10**6):06d}"
-    storage.save_emergency_code(
-        {
-            "email": admin,
-            "code_hash": hash_emergency_code(code),
-            "expires_at": (
-                _now() + timedelta(minutes=settings.EMERGENCY_CODE_TTL_MINUTES)
-            ).isoformat(),
-            "attempts": 0,
-            "created_at": _now().isoformat(),
-        }
-    )
-    try:
-        email_service.send_emergency_code(admin, code)
-    except Exception:  # noqa: BLE001 - never leak send status to the caller
-        log.exception("emergency code: failed to send email")
+    code: str | None = None
+    with _LOCK:
+        existing = storage.load_emergency_code()
+        if existing:
+            created = datetime.fromisoformat(existing["created_at"])
+            if _now() - created < timedelta(seconds=settings.EMERGENCY_CODE_COOLDOWN_SECONDS):
+                return
+        admin = settings.EMERGENCY_ADMIN_EMAIL.strip().lower()
+        code = f"{secrets.randbelow(10**6):06d}"
+        storage.save_emergency_code(
+            {
+                "email": admin,
+                "code_hash": hash_emergency_code(code),
+                "expires_at": (
+                    _now() + timedelta(minutes=settings.EMERGENCY_CODE_TTL_MINUTES)
+                ).isoformat(),
+                "attempts": 0,
+                "created_at": _now().isoformat(),
+            }
+        )
+    if code is not None:
+        try:
+            email_service.send_emergency_code(settings.EMERGENCY_ADMIN_EMAIL, code)
+        except Exception:  # noqa: BLE001 - never leak send status to the caller
+            log.exception("emergency code: failed to send email")
 
 
 def verify_code(email: str, code: str) -> UserRecord | None:
@@ -67,22 +73,23 @@ def verify_code(email: str, code: str) -> UserRecord | None:
     request_code's cooldown (keyed on the record's created_at) keeps
     withholding a fresh code instead of letting an attacker burn-and-retry
     at network speed. Returns None on any failure."""
-    stored = storage.load_emergency_code()
-    if not stored or not _is_admin_email(email):
+    with _LOCK:
+        stored = storage.load_emergency_code()
+        if not stored or not _is_admin_email(email):
+            return None
+        if _now() >= datetime.fromisoformat(stored["expires_at"]):
+            storage.delete_emergency_code()
+            return None
+        if stored.get("attempts", 0) >= settings.EMERGENCY_CODE_MAX_ATTEMPTS:
+            return None
+        if hmac.compare_digest(stored["code_hash"], hash_emergency_code(code)):
+            storage.delete_emergency_code()
+            return user_service.get_or_provision_google_user(
+                email=settings.EMERGENCY_ADMIN_EMAIL.strip().lower(),
+                name=None,
+                google_sub=None,
+                role=UserRole.admin,
+            )
+        stored["attempts"] = stored.get("attempts", 0) + 1
+        storage.save_emergency_code(stored)
         return None
-    if _now() >= datetime.fromisoformat(stored["expires_at"]):
-        storage.delete_emergency_code()
-        return None
-    if stored.get("attempts", 0) >= settings.EMERGENCY_CODE_MAX_ATTEMPTS:
-        return None
-    if hmac.compare_digest(stored["code_hash"], hash_emergency_code(code)):
-        storage.delete_emergency_code()
-        return user_service.get_or_provision_google_user(
-            email=settings.EMERGENCY_ADMIN_EMAIL.strip().lower(),
-            name=None,
-            google_sub=None,
-            role=UserRole.admin,
-        )
-    stored["attempts"] = stored.get("attempts", 0) + 1
-    storage.save_emergency_code(stored)
-    return None

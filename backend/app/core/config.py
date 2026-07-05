@@ -20,6 +20,9 @@ class Settings(BaseSettings):
     RESEND_API_KEY: str = ""
     EMAIL_FROM: str = ""
     EMERGENCY_ADMIN_EMAIL: str = ""
+    # Invariant: TTL_MINUTES * 60 should be >= COOLDOWN_SECONDS, otherwise an
+    # expired code is deleted before the cooldown elapses, weakening the
+    # brute-force bound. Defaults (600s vs 60s) satisfy this.
     EMERGENCY_CODE_TTL_MINUTES: int = 10
     EMERGENCY_CODE_MAX_ATTEMPTS: int = 5
     EMERGENCY_CODE_COOLDOWN_SECONDS: int = 60

@@ -24,7 +24,8 @@ def test_request_always_generic(client, admin_email, capture_code):
     r1 = client.post("/api/v1/auth/emergency/request", json={"email": admin_email})
     r2 = client.post("/api/v1/auth/emergency/request", json={"email": "nope@example.com"})
     assert r1.status_code == r2.status_code == 200
-    assert r1.json() == r2.json() == {"detail": "If that email is registered, a code has been sent."}
+    expected = {"detail": "If that email is registered, a code has been sent."}
+    assert r1.json() == r2.json() == expected
 
 
 def test_full_login_flow(client, admin_email, capture_code):
@@ -47,6 +48,7 @@ def test_verify_wrong_code_is_400(client, admin_email, capture_code):
         "/api/v1/auth/emergency/verify", json={"email": admin_email, "code": "000000"}
     )
     assert r.status_code == 400
+    assert r.json() == {"detail": "Invalid or expired code."}
 
 
 def test_non_admin_cannot_get_code(client, admin_email, capture_code):

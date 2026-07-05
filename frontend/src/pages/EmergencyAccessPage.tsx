@@ -57,6 +57,7 @@ export default function EmergencyAccessPage() {
               type="email"
               autoComplete="email"
               required
+              aria-label="Admin email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="you@example.com"
@@ -76,6 +77,7 @@ export default function EmergencyAccessPage() {
               inputMode="numeric"
               autoComplete="one-time-code"
               required
+              aria-label="One-time code"
               value={code}
               onChange={(e) => setCode(e.target.value)}
               placeholder="6-digit code"

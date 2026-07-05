@@ -38,6 +38,8 @@ def seed_users() -> None:
         user_service.get_or_provision_google_user(
             email=email, name=entry.get("name"), google_sub=None, role=role
         )
+    if not (settings.EMERGENCY_ADMIN_EMAIL or "").strip():
+        log.warning("EMERGENCY_ADMIN_EMAIL is not set — emergency email-code access is disabled.")
 
 app.add_middleware(
     CORSMiddleware,
