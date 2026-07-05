@@ -1,21 +1,13 @@
 import { useState } from 'react';
-import { useForm } from 'react-hook-form';
 import { useNavigate } from 'react-router-dom';
 import { GoogleLogin } from '@react-oauth/google';
-import { login, loginWithGoogle } from '@/api/auth';
+import { loginWithGoogle } from '@/api/auth';
 import { useAuth } from '@/stores/auth';
 
-interface Form { username: string; password: string }
-
 export default function LoginPage() {
-  const { register, handleSubmit } = useForm<Form>({
-    defaultValues: { username: '', password: '' },
-  });
   const setToken = useAuth((s) => s.setToken);
   const navigate = useNavigate();
   const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [showAdmin, setShowAdmin] = useState(false);
 
   async function onGoogle(credential: string | undefined) {
     setError(null);
@@ -23,7 +15,6 @@ export default function LoginPage() {
       setError('Google sign-in failed. Please try again.');
       return;
     }
-    setLoading(true);
     try {
       const { access_token } = await loginWithGoogle(credential);
       setToken(access_token);
@@ -35,22 +26,6 @@ export default function LoginPage() {
           ? 'This Google account is not authorized.'
           : 'Sign-in failed. Please try again.',
       );
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function onSubmit(values: Form) {
-    setError(null);
-    setLoading(true);
-    try {
-      const { access_token } = await login(values.username, values.password);
-      setToken(access_token);
-      navigate('/projects');
-    } catch {
-      setError('Invalid credentials');
-    } finally {
-      setLoading(false);
     }
   }
 
@@ -131,52 +106,6 @@ export default function LoginPage() {
             <p className="mt-4 text-sm text-red-600" role="alert">
               {error}
             </p>
-          )}
-
-          <div className="mt-10 flex items-center gap-3">
-            <span className="h-px flex-1 bg-slate-200" />
-            <span className="text-[11px] font-medium uppercase tracking-[0.12em] text-slate-400">
-              Admin
-            </span>
-            <span className="h-px flex-1 bg-slate-200" />
-          </div>
-
-          <button
-            type="button"
-            onClick={() => setShowAdmin((v) => !v)}
-            className="mt-3 w-full text-xs text-slate-400 transition-colors hover:text-slate-600"
-          >
-            Emergency admin sign-in
-          </button>
-
-          {showAdmin && (
-            <form onSubmit={handleSubmit(onSubmit)} className="mt-4 space-y-3">
-              <label className="block space-y-1.5">
-                <span className="text-xs font-medium text-slate-600">Admin e-mail</span>
-                <input
-                  {...register('username', { required: true })}
-                  autoComplete="username"
-                  placeholder="admin@example.com"
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30"
-                />
-              </label>
-              <label className="block space-y-1.5">
-                <span className="text-xs font-medium text-slate-600">Password</span>
-                <input
-                  {...register('password', { required: true })}
-                  type="password"
-                  autoComplete="current-password"
-                  placeholder="••••••••"
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30"
-                />
-              </label>
-              <button
-                disabled={loading}
-                className="w-full rounded-lg bg-slate-900 py-2.5 text-sm font-medium text-white transition-colors hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {loading ? 'Signing in…' : 'Sign in as admin'}
-              </button>
-            </form>
           )}
         </div>
       </main>

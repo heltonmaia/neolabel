@@ -8,14 +8,15 @@ export interface User {
   created_at: string;
 }
 
-export async function login(email: string, password: string) {
-  const form = new URLSearchParams();
-  form.append('username', email);
-  form.append('password', password);
+export async function requestEmergencyCode(email: string) {
+  const { data } = await api.post<{ detail: string }>('/auth/emergency/request', { email });
+  return data;
+}
+
+export async function verifyEmergencyCode(email: string, code: string) {
   const { data } = await api.post<{ access_token: string; token_type: string }>(
-    '/auth/login',
-    form,
-    { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } },
+    '/auth/emergency/verify',
+    { email, code },
   );
   return data;
 }
