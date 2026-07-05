@@ -70,3 +70,12 @@ def test_atomic_write_no_tmp_leftover(tmp_path):
     storage.save_project({"id": 1, "name": "x"})
     leftovers = list(tmp_path.rglob("*.tmp"))
     assert leftovers == []
+
+
+def test_emergency_code_roundtrip_and_delete():
+    assert storage.load_emergency_code() is None
+    storage.save_emergency_code({"email": "a@b.com", "attempts": 0})
+    assert storage.load_emergency_code() == {"email": "a@b.com", "attempts": 0}
+    storage.delete_emergency_code()
+    assert storage.load_emergency_code() is None
+    storage.delete_emergency_code()  # idempotent, no error

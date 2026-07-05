@@ -82,6 +82,25 @@ def save_users(users: list[dict]) -> None:
     _write_json(_USERS_FILE(), users)
 
 
+# ---------- emergency code ----------
+
+_EMERGENCY_CODE_FILE = lambda: _root() / "emergency_code.json"  # noqa: E731
+
+
+def load_emergency_code() -> dict | None:
+    return _read_json(_EMERGENCY_CODE_FILE(), None)
+
+
+def save_emergency_code(data: dict) -> None:
+    _write_json(_EMERGENCY_CODE_FILE(), data)
+
+
+def delete_emergency_code() -> None:
+    f = _EMERGENCY_CODE_FILE()
+    if f.exists():
+        f.unlink()
+
+
 # ---------- projects ----------
 
 def load_project(pid: int) -> dict | None:
