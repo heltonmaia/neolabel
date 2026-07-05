@@ -49,14 +49,18 @@ Core records:
 | Item | `id, project_id, payload, status, assigned_to, created_at` |
 | Annotation | `id, item_id, annotator_id, value, created_at, updated_at` |
 
-- `User.hashed_password` is optional — only the single break-glass admin
-  account has one (see §4 Auth). Google-provisioned accounts instead
-  carry `email` (lowercased; the login key) and `google_sub` (Google's
-  stable subject id, set on first Google login); only `google_sub` is
-  `None` for the break-glass admin — its `email` is set (that's how it
-  can log in by typing its email). `username` is a display label (from
-  the Google profile name, else the email local-part) — it is no longer
-  a login key, except for the break-glass admin, who may type either.
+- `User.hashed_password` is optional and, since the emergency-access
+  migration, effectively vestigial: no login endpoint accepts a
+  password anymore (`POST /auth/login` and the password break-glass are
+  **removed** — see §4 Auth). A handful of pre-existing dormant accounts
+  in prod still carry a hash from before the migration, and
+  `hash_password`/`verify_password` (`core/security.py`) remain as
+  internal helpers, but nothing in the HTTP API calls them. Every live
+  account is either Google-provisioned (`email` + `google_sub`, the
+  latter set on first Google login) or the single emergency-admin
+  account (`email` set, `google_sub` always `None` — that path never
+  calls Google). `username` is a display label (from the Google profile
+  name, else the email local-part), not a login credential for anyone.
 - `item.payload` is free-form JSON:
   - text items: `{text: str}`
   - pose frames: `{source_video: str, frame_index: int, image_url: str}`
@@ -128,6 +132,7 @@ All state under `DATA_DIR` (default `./data`). One folder per project.
 data/
   users.json                          # list[UserRecord]
   _counters.json                      # monotonic id counters per kind
+  emergency_code.json                 # at most one active emergency code (absent = none)
   projects/<pid>/
     project.json                      # project config + labels
     items/<iid>.json                  # one file per item
@@ -148,6 +153,21 @@ data/
   i.e. the repo root, the same spot the old `seed_users.json`
   occupied). It replaces `seed_users.json` entirely and holds no
   passwords. See §4 for how it's used at login.
+- **`emergency_code.json`** — unlike `allowlist.json`, this one lives
+  **inside** `DATA_DIR`. Holds at most one record (the system has
+  exactly one eligible emergency email, so one outstanding code is
+  enough):
+  ```json
+  {
+    "email": "owner@example.com",
+    "code_hash": "<hex hmac_sha256(code, SECRET_KEY)>",
+    "expires_at": "<ISO-8601 UTC>",
+    "attempts": 0,
+    "created_at": "<ISO-8601 UTC>"
+  }
+  ```
+  Absent file = no outstanding code. See §4 for the full lifecycle
+  (generation, verification, attempt/cooldown handling).
 
 ### Schema evolution
 
@@ -168,8 +188,14 @@ user does not own returns **404** (to avoid leaking existence), with
 
 ### Auth
 
-Google Sign-In is the primary login for every regular user; exactly
-one **break-glass** local admin (password) exists for emergencies.
+Google Sign-In is the primary login for every user. A single
+**emergency email-code** flow is the Google-independent fallback for
+the one configured admin — for when Google Sign-In itself is
+unavailable (bad OAuth client, consent/allowlist misconfig,
+token-verification failure, Google outage). The password break-glass
+(`POST /auth/login`, `BREAKGLASS_ADMIN_EMAIL` /
+`BREAKGLASS_ADMIN_PASSWORD`) is **removed** — no password is stored or
+accepted anywhere in the system anymore.
 
 - `POST /auth/google` — `{credential}` (the signed ID token Google
   Identity Services returns to the browser) → `{access_token,
@@ -179,30 +205,85 @@ one **break-glass** local admin (password) exists for emergencies.
   every call — see §3) → `403` if absent → finds or provisions a
   passwordless `UserRecord` by email (role, `google_sub`, and display
   name synced from the allowlist/Google claims on every login) →
-  mints the same session JWT as `/auth/login`. `401` on an
-  invalid/expired/wrong-`aud` token; `403` if the email isn't verified
-  or isn't allowlisted (the message never reveals whether an allowlist
-  entry exists). Rate-limited `5/min` per client IP, like `/auth/login`.
-- `POST /auth/login` — form(`username`, `password`) →
-  `{access_token, token_type}`. Unchanged code, but now only succeeds
-  for accounts that **have** a `hashed_password` — in practice, only
-  the break-glass admin (seeded from `BREAKGLASS_ADMIN_EMAIL` /
-  `BREAKGLASS_ADMIN_PASSWORD` at startup). Google-provisioned users
-  have no password hash and get `401` here; `/auth/google` is their
-  only door. Matches by username **or** email, so the break-glass
-  admin can type either.
-- `GET  /auth/me` — current user (now includes `email`).
-- **Allowlist authorization, instant revocation.** Access is gated by
-  `allowlist.json` (§3), read fresh from disk on every `/auth/google`
-  call — removing an email denies that user on their very next login
-  attempt, no restart required. A restart is only needed to
-  *pre-provision* a newly-added email ahead of its first login (done
-  at startup, alongside the break-glass admin upsert — see §5).
+  mints the standard session JWT. `401` on an invalid/expired/wrong-
+  `aud` token; `403` if the email isn't verified or isn't allowlisted
+  (the message never reveals whether an allowlist entry exists); `503`
+  if Google's own verification call fails (outage). Rate-limited
+  `5/min` per client IP.
+- `GET  /auth/me` — current user (includes `email`).
+- **`POST /auth/emergency/request`** — `{email}` → **always** `200
+  {"detail": "If that email is registered, a code has been sent."}`,
+  whether or not `email` matches `EMERGENCY_ADMIN_EMAIL`
+  (case-insensitive) — no user enumeration. Only when it *does* match,
+  and no unexpired code for it is still within its cooldown, does the
+  call generate a 6-digit numeric code, store it (overwriting any
+  previous code), and email it via Resend; any other input is a silent
+  no-op. A Resend send failure is logged server-side but never changes
+  the response (send status is never leaked). `email` is a plain
+  string field (not format-validated) — anything that
+  case-insensitively equals `EMERGENCY_ADMIN_EMAIL` counts.
+  Rate-limited `5/min` per client IP.
+- **`POST /auth/emergency/verify`** — `{email, code}` → `200
+  {access_token, token_type}` (same `Token` shape as `/auth/google`) on
+  success; generic `400 {"detail": "Invalid or expired code."}` on
+  *any* failure — no code on file, wrong email, expired, wrong code, or
+  attempts already exhausted are all indistinguishable to the caller.
+  On success: the stored code is deleted (single-use), the
+  emergency-admin `UserRecord` is found-or-provisioned by
+  `EMERGENCY_ADMIN_EMAIL` with role forced to `admin` (same
+  provisioning helper `/auth/google` uses), and the standard session
+  JWT is minted — identical shape and `ACCESS_TOKEN_EXPIRE_MINUTES` as
+  every other login path. On a wrong code, `attempts` is incremented in
+  place (see security properties below). This endpoint never calls
+  Google and never reads `allowlist.json` — fully independent of both.
+  Rate-limited `10/min` per client IP.
+- **Emergency-code security properties** (`services/emergency.py`,
+  hashing in `core/security.py`):
+  - 6 digits, numeric, single-use, **10-minute TTL**
+    (`EMERGENCY_CODE_TTL_MINUTES`, default 10).
+  - Stored **hashed**, never in plaintext:
+    `code_hash = hmac_sha256(code, SECRET_KEY)` (hex), compared with a
+    constant-time `hmac.compare_digest` — a leaked `emergency_code.json`
+    can't be brute-forced without `SECRET_KEY`.
+  - **Attempt cap** (`EMERGENCY_CODE_MAX_ATTEMPTS`, default **5**): once
+    hit, verify keeps returning the generic `400` — even for the
+    correct code — but the record is **blocked, not deleted**. It only
+    goes away when it naturally expires (TTL) or a fresh `request` call
+    lands *after* the cooldown window, which overwrites it with a new
+    code. Deleting it immediately on exhaustion was deliberately
+    avoided: that would let an attacker who just burned a code trigger
+    a brand-new one at network speed, defeating the cooldown below.
+  - **Cooldown** (`EMERGENCY_CODE_COOLDOWN_SECONDS`, default **60**):
+    `request` won't generate/send a new code while the existing
+    record's `created_at` is within the cooldown window, regardless of
+    whether that record is still guessable or already
+    attempts-exhausted. Blocks inbox spam and burn-and-immediately-
+    retry alike.
+  - **No user enumeration**: `request` returns the identical body and
+    status for the admin email, any other email, or a malformed one.
+  - **Single eligible email**: only `EMERGENCY_ADMIN_EMAIL` (one
+    setting, one admin, checked case-insensitively) can ever receive a
+    code, and this check is **independent of `allowlist.json`** — the
+    emergency path still works if the allowlist itself is what broke.
+  - Delivery via **Resend** (`POST https://api.resend.com/emails`,
+    `RESEND_API_KEY` bearer auth, `from = EMAIL_FROM`) over the
+    `requests` library — chosen over SMTP because the production VPS
+    blocks outbound SMTP ports. `services/email.py` is thin and
+    mockable; tests monkeypatch it, so the suite makes no network call.
+  - The minted session is the **standard** JWT — there is no separate,
+    shorter- or longer-lived "emergency session" type.
+- **Allowlist authorization, instant revocation** (`/auth/google`
+  only). Access is gated by `allowlist.json` (§3), read fresh from disk
+  on every call — removing an email denies that user on their very
+  next login attempt, no restart required. A restart is only needed to
+  *pre-provision* a newly-added email ahead of its first login (done at
+  startup — see §5). The emergency-admin account sits entirely outside
+  this mechanism.
 - **Fail-closed.** A missing, unreadable, or malformed (not a JSON
   list) `allowlist.json` makes the loader return an empty map instead
-  of raising — every `/auth/google` call then `403`s, but the
-  break-glass admin still logs in via `/auth/login`, which never
-  touches the allowlist.
+  of raising — every `/auth/google` call then `403`s. The emergency
+  path is unaffected (it never reads the allowlist), so it remains a
+  way in even when the allowlist itself is broken.
 
 ### Users (admin-visible directory)
 - `GET /users` — list all users (used by admin to assign videos)
@@ -300,23 +381,26 @@ one **break-glass** local admin (password) exists for emergencies.
 
 - OpenAPI at `/docs`.
 - CORS restricted to `FRONTEND_URL` (single origin).
-- Passwords hashed with `bcrypt` directly (not passlib — breaks on
-  bcrypt 4.x). One-way; never logged.
+- `bcrypt` password hashing (`core/security.py:hash_password`/
+  `verify_password`, not passlib — breaks on bcrypt 4.x) remains in the
+  codebase but is no longer wired to any HTTP endpoint — no login path
+  accepts a password (see §4 Auth).
 - JWT HS256 with a configurable expiry (default 60 min).
-- `POST /auth/login` is rate-limited to **5 requests/minute per client
-  IP** (slowapi; IP resolved from `X-Forwarded-For` since the app sits
-  behind nginx).
+- `POST /auth/google` and `POST /auth/emergency/request` are
+  rate-limited to **5 requests/minute per client IP**;
+  `POST /auth/emergency/verify` to **10/minute** (slowapi; IP resolved
+  from `X-Forwarded-For` since the app sits behind nginx).
 - Media endpoint `GET /files/projects/{pid}/{subdir}/{path}` only
   serves `subdir` ∈ {`frames`, `_videos`}; other files in `DATA_DIR`
   (users, counters, items, annotations JSON) are **not** web-reachable.
 - Config via `pydantic-settings`, driven by `.env`.
 - FFmpeg must be on `PATH` for video upload; the Docker image bundles
   it.
-- On every startup, `seed_users()` (i) upserts the break-glass admin
-  from `BREAKGLASS_ADMIN_EMAIL` / `BREAKGLASS_ADMIN_PASSWORD` when both
-  are set — idempotent, creates it once and only rehashes the password
-  if it changed — and (ii) provisions a passwordless user per
-  `allowlist.json` entry (role and display name synced from the file).
-  Both steps are additive: existing records absent from the allowlist
-  are left dormant, never deleted — prune them with
-  `backend/scripts/reconcile_users.py` (`--apply` to commit).
+- On every startup, `seed_users()` provisions a passwordless user per
+  `allowlist.json` entry (role and display name synced from the file)
+  — additive: existing records absent from the allowlist are left
+  dormant, never deleted — prune them with
+  `backend/scripts/reconcile_users.py` (`--apply` to commit). The
+  emergency-admin account is **not** part of startup seeding; it is
+  found-or-provisioned lazily, only on the first successful
+  `POST /auth/emergency/verify`.
