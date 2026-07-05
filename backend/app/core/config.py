@@ -19,5 +19,14 @@ class Settings(BaseSettings):
     BREAKGLASS_ADMIN_EMAIL: str = ""
     BREAKGLASS_ADMIN_PASSWORD: str = ""
 
+    # Emergency email-code access (break-glass v2). BREAKGLASS_* above are
+    # removed in a later task once the password path is gone.
+    RESEND_API_KEY: str = ""
+    EMAIL_FROM: str = ""
+    EMERGENCY_ADMIN_EMAIL: str = ""
+    EMERGENCY_CODE_TTL_MINUTES: int = 10
+    EMERGENCY_CODE_MAX_ATTEMPTS: int = 5
+    EMERGENCY_CODE_COOLDOWN_SECONDS: int = 60
+
 
 settings = Settings()
