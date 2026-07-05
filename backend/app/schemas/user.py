@@ -44,3 +44,12 @@ class Token(BaseModel):
 
 class GoogleLogin(BaseModel):
     credential: str
+
+
+class EmergencyCodeRequest(BaseModel):
+    email: str
+
+
+class EmergencyCodeVerify(BaseModel):
+    email: str
+    code: str = Field(min_length=1, max_length=12)

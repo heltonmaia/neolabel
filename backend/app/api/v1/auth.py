@@ -8,8 +8,16 @@ from google.auth.exceptions import GoogleAuthError
 from app.core.deps import CurrentUser
 from app.core.ratelimit import limiter
 from app.core.security import create_access_token
-from app.schemas.user import GoogleLogin, Token, UserRead, UserRole
+from app.schemas.user import (
+    EmergencyCodeRequest,
+    EmergencyCodeVerify,
+    GoogleLogin,
+    Token,
+    UserRead,
+    UserRole,
+)
 from app.services import allowlist as allowlist_service
+from app.services import emergency as emergency_service
 from app.services import google_auth
 from app.services import user as user_service
 
@@ -70,3 +78,22 @@ def google_login(request: Request, body: GoogleLogin) -> Token:
 @router.get("/me", response_model=UserRead)
 def me(current_user: CurrentUser) -> UserRead:
     return UserRead.model_validate(current_user.model_dump())
+
+
+_GENERIC_REQUEST_MSG = "If that email is registered, a code has been sent."
+
+
+@router.post("/emergency/request")
+@limiter.limit("5/minute")
+def emergency_request(request: Request, body: EmergencyCodeRequest) -> dict[str, str]:
+    emergency_service.request_code(body.email)
+    return {"detail": _GENERIC_REQUEST_MSG}
+
+
+@router.post("/emergency/verify", response_model=Token)
+@limiter.limit("10/minute")
+def emergency_verify(request: Request, body: EmergencyCodeVerify) -> Token:
+    user = emergency_service.verify_code(body.email, body.code)
+    if not user:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid or expired code.")
+    return Token(access_token=create_access_token(str(user.id)))
