@@ -54,7 +54,6 @@ def test_request_code_within_cooldown_does_not_resend(admin_email, capture_code)
 
 def test_verify_success_returns_admin_and_burns(admin_email, capture_code):
     from app.core import storage
-    from app.core.security import decode_token, create_access_token  # noqa: F401
     from app.services import emergency
 
     emergency.request_code(admin_email)
@@ -80,9 +79,28 @@ def test_verify_burns_after_max_attempts(admin_email, capture_code, monkeypatch)
     emergency.request_code(admin_email)
     emergency.verify_code(admin_email, "000000")
     emergency.verify_code(admin_email, "000000")  # hits max
-    assert storage.load_emergency_code() is None
-    # even the real code now fails (burned)
+    stored = storage.load_emergency_code()
+    # record persists (so request_code's cooldown keeps withholding a fresh
+    # code) — it is merely blocked, not deleted, once attempts are exhausted
+    assert stored is not None
+    assert stored["attempts"] >= settings.EMERGENCY_CODE_MAX_ATTEMPTS
+    # even the real code now fails (blocked by the exhausted attempts guard)
     assert emergency.verify_code(admin_email, capture_code["code"]) is None
+
+
+def test_cooldown_holds_after_burn(admin_email, capture_code, monkeypatch):
+    """Burning a code via exhausted attempts must not let request_code skip
+    the cooldown — otherwise an attacker can burn + immediately re-request
+    a fresh code at network speed, bypassing the 60s throttle entirely."""
+    monkeypatch.setattr(settings, "EMERGENCY_CODE_MAX_ATTEMPTS", 2)
+    from app.services import emergency
+
+    emergency.request_code(admin_email)
+    emergency.verify_code(admin_email, "000000")
+    emergency.verify_code(admin_email, "000000")  # exhausts attempts
+    capture_code.clear()
+    emergency.request_code(admin_email)  # immediate retry after burn
+    assert "code" not in capture_code  # cooldown still holds — no regeneration
 
 
 def test_verify_expired_code_fails(admin_email, capture_code, monkeypatch):

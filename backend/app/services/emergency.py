@@ -62,8 +62,11 @@ def request_code(email: str) -> None:
 
 def verify_code(email: str, code: str) -> UserRecord | None:
     """Validate a submitted code. On success burn it and return the admin
-    user (provisioned if needed). On failure count the attempt and burn the
-    code once attempts are exhausted. Returns None on any failure."""
+    user (provisioned if needed). On failure count the attempt; once attempts
+    are exhausted the record is merely blocked, not deleted, so
+    request_code's cooldown (keyed on the record's created_at) keeps
+    withholding a fresh code instead of letting an attacker burn-and-retry
+    at network speed. Returns None on any failure."""
     stored = storage.load_emergency_code()
     if not stored or not _is_admin_email(email):
         return None
@@ -71,7 +74,6 @@ def verify_code(email: str, code: str) -> UserRecord | None:
         storage.delete_emergency_code()
         return None
     if stored.get("attempts", 0) >= settings.EMERGENCY_CODE_MAX_ATTEMPTS:
-        storage.delete_emergency_code()
         return None
     if hmac.compare_digest(stored["code_hash"], hash_emergency_code(code)):
         storage.delete_emergency_code()
@@ -82,8 +84,5 @@ def verify_code(email: str, code: str) -> UserRecord | None:
             role=UserRole.admin,
         )
     stored["attempts"] = stored.get("attempts", 0) + 1
-    if stored["attempts"] >= settings.EMERGENCY_CODE_MAX_ATTEMPTS:
-        storage.delete_emergency_code()
-    else:
-        storage.save_emergency_code(stored)
+    storage.save_emergency_code(stored)
     return None
