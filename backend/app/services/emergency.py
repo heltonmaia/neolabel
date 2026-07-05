@@ -61,7 +61,7 @@ def request_code(email: str) -> None:
         )
     if code is not None:
         try:
-            email_service.send_emergency_code(settings.EMERGENCY_ADMIN_EMAIL, code)
+            email_service.send_emergency_code(admin, code)
         except Exception:  # noqa: BLE001 - never leak send status to the caller
             log.exception("emergency code: failed to send email")
 

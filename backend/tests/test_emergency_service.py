@@ -128,3 +128,15 @@ def test_verify_expired_code_fails(admin_email, capture_code, monkeypatch):
     emergency.request_code(admin_email)
     assert emergency.verify_code(admin_email, capture_code["code"]) is None
     assert storage.load_emergency_code() is None
+
+
+def test_request_code_sanitizes_config_email_before_send(capture_code, monkeypatch):
+    """Guard against passing raw config value to email service.
+    If EMERGENCY_ADMIN_EMAIL has whitespace or mixed case, the send
+    must receive the normalized (stripped + lowercased) version."""
+    monkeypatch.setattr(settings, "EMERGENCY_ADMIN_EMAIL", "  Owner@Example.com  ")
+    from app.services import emergency
+
+    emergency.request_code("owner@example.com")
+    # The email service must receive the normalized address
+    assert capture_code["to"] == "owner@example.com"
