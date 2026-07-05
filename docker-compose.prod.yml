@@ -12,8 +12,9 @@ services:
       ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-60}
       ACCESS_ALLOWLIST_FILE: /allowlist.json
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
-      BREAKGLASS_ADMIN_EMAIL: ${BREAKGLASS_ADMIN_EMAIL:-}
-      BREAKGLASS_ADMIN_PASSWORD: ${BREAKGLASS_ADMIN_PASSWORD:-}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      EMAIL_FROM: ${EMAIL_FROM:-}
+      EMERGENCY_ADMIN_EMAIL: ${EMERGENCY_ADMIN_EMAIL:-}
     volumes:
       - ${DATA_DIR:-/srv/neo-label/data}:/data
       - ./allowlist.json:/allowlist.json:ro

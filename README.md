@@ -10,7 +10,7 @@ datasets. Two keypoint schemas ship by default: **17-point infant pose
 <p align="center">
   <img src="docs/screenshots/login.png" alt="NeoLabel sign-in screen showing the project tagline and the two default keypoint schemas (Infant 17-pt and Rodent 7-pt)" width="820">
   <br>
-  <sub><em>Sign-in screen — the two default schemas and the supported workflow are surfaced right at the entry point. (Predates the Google Sign-In rollout: the password form shown here is now the break-glass admin fallback behind an "emergency" toggle — the primary control is a Google button. See "Run it" below.)</em></sub>
+  <sub><em>Sign-in screen — the two default schemas and the supported workflow are surfaced right at the entry point. (Predates the Google Sign-In rollout: the password form shown here has since been replaced by a one-time email code sent to a single configured admin address, at the "/emergency" page — the primary control is a Google button. See "Run it" below.)</em></sub>
 </p>
 
 > Full specification (domain model, API reference, roadmap) lives in
@@ -113,16 +113,16 @@ The recommended path is **Docker** — bundles FFmpeg, pins Python/Node
 versions, and mounts source code for hot-reload.
 
 Sign-in is **Google Sign-In** for everyone, restricted to an email
-allowlist, plus one emergency **break-glass admin** account (password)
-for when Google/OAuth is unavailable or misconfigured.
+allowlist, plus **emergency email-code access** for one configured
+admin address, for when Google/OAuth is unavailable or misconfigured.
 
 ```bash
 cp .env.example .env
 cp allowlist.example.json allowlist.json
 # edit allowlist.json: the emails allowed to sign in, and their role
 # edit .env: GOOGLE_CLIENT_ID + VITE_GOOGLE_CLIENT_ID (a Google OAuth
-# Web Client ID — no client secret needed), and BREAKGLASS_ADMIN_EMAIL
-# / BREAKGLASS_ADMIN_PASSWORD for the emergency admin account
+# Web Client ID — no client secret needed), and RESEND_API_KEY /
+# EMAIL_FROM / EMERGENCY_ADMIN_EMAIL for the emergency access code
 docker compose up --build -d
 ```
 
@@ -140,8 +140,8 @@ every Google sign-in, and also at backend startup:
   reconciliation script (see SPEC).
 
 Without `GOOGLE_CLIENT_ID` set, Google Sign-In is not configured and
-only the break-glass admin can sign in, via the "Entrar como admin
-(emergência)" link on the sign-in screen.
+only emergency access works — go directly to `/emergency`, request a
+one-time code, and sign in as `EMERGENCY_ADMIN_EMAIL`.
 
 For a native (non-Docker) setup, see [SPEC.md](./SPEC.md). Requires
 Python 3.12, Node 18+, and FFmpeg on `PATH`.
