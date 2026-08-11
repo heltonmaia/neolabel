@@ -25,5 +25,3 @@ allowlist.json
 frontend/src/**/*.js
 .env.prod
 data-prod/
-CLAUDE.local.md
-CLAUDE.md
