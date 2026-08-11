@@ -16,8 +16,8 @@ authors:
     name-suffix: Filho
     affiliation: Universidade Federal do Rio Grande do Norte
     orcid: "https://orcid.org/0009-0002-2548-2491"
-url: "https://github.com/neolabel/app"
-repository-code: "https://github.com/neolabel/app"
+url: "https://github.com/heltonmaia/neolabel"
+repository-code: "https://github.com/heltonmaia/neolabel"
 license: Apache-2.0
 abstract: >-
   Software for video-based pose annotation — build Machine Learning
