@@ -4,7 +4,6 @@ Source of truth for the product. Code follows the spec; when reality
 diverges, update the spec **before** the code.
 
 - User-facing overview and setup: **README.md**
-- Repo internals and conventions for contributors: **CLAUDE.md**
 
 ## 1. Roadmap by phase
 

@@ -22,7 +22,7 @@
 - Backend tests run **inside the container as a module**: `docker compose exec -T backend python -m pytest tests/<file>::<test> -v` (always `-T`, always `python -m pytest`). The dev stack is up and pytest/ruff are installed in the container.
 - Lint must be **scoped to changed files**: `ruff check <files>` / `ruff format <files>` — never `ruff format backend` (it churns unrelated files). A pre-existing `E741` at `backend/app/services/item.py:286` is unrelated — ignore it.
 - Frontend has **no test suite**; verify with `cd frontend && npx tsc -b --noEmit` (must be clean; if `.js` files appear under `src/`, delete them — they are gitignored). `npm run lint` is broken in this checkout (no eslint config) — do not use it as a gate.
-- Commits in this repo omit the `Co-Authored-By` trailer. Never `git add` CLAUDE.md (gitignored).
+- Never `git add` the repo's local contributor notes (gitignored).
 
 ---
 

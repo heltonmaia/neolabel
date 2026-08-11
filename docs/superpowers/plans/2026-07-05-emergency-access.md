@@ -49,7 +49,7 @@
 
 **Modify (tests, Task 7):** `test_auth_api.py`, `test_user_service.py`, `test_startup_seed.py`, `test_config_settings.py`, `test_user_provisioning.py`.
 
-**Modify (docs, Task 8):** `SPEC.md`, `CLAUDE.md`, `CLAUDE.local.md`, memory.
+**Modify (docs, Task 8):** `SPEC.md`, the local contributor and deploy notes, memory.
 
 ---
 
@@ -842,20 +842,20 @@ git commit -m "refactor(auth): remove the password break-glass (replaced by emai
 ### Task 8: Docs
 
 **Files:**
-- Modify: `SPEC.md`, `CLAUDE.md`, `CLAUDE.local.md`, and memory `neolabel-prod-google-auth-no-breakglass`.
+- Modify: `SPEC.md`, the local contributor and deploy notes, and memory `neolabel-prod-google-auth-no-breakglass`.
 
 - [ ] **Step 1: SPEC.md** — read it, find the auth section describing the break-glass password, and replace it with the emergency email-code flow: the two endpoints, the on-disk `emergency_code.json` shape, the security properties (6-digit, 10-min, single-use, 5 attempts, 60s cooldown, HMAC-stored, no enumeration, single `EMERGENCY_ADMIN_EMAIL`), Resend delivery, and that `/auth/login` + the password admin are removed. Per repo convention, SPEC is the source of truth — keep it exact.
 
-- [ ] **Step 2: CLAUDE.md** — update the auth pointers: `auth.py` now hosts `/auth/emergency/request` + `/auth/emergency/verify` (no `/auth/login`); new `services/email.py` (Resend, mockable) and `services/emergency.py`; note the removed password break-glass in the footguns section; note `requests` (not httpx) is the runtime HTTP client.
+- [ ] **Step 2: Contributor notes** — update the auth pointers: `auth.py` now hosts `/auth/emergency/request` + `/auth/emergency/verify` (no `/auth/login`); new `services/email.py` (Resend, mockable) and `services/emergency.py`; note the removed password break-glass in the footguns section; note `requests` (not httpx) is the runtime HTTP client.
 
-- [ ] **Step 3: CLAUDE.local.md** — under the VPS section, document the emergency-access prod setup: `RESEND_API_KEY`, `EMAIL_FROM`, `EMERGENCY_ADMIN_EMAIL` in `.env.prod`; the Resend sending-domain DNS (SPF/DKIM at the hello.co panel for `heltonmaia.com`); and the smoke test (`/emergency` → receive code → verify) as a post-deploy step. Note `BREAKGLASS_*` are gone.
+- [ ] **Step 3: Deploy notes** — under the VPS section, document the emergency-access prod setup: `RESEND_API_KEY`, `EMAIL_FROM`, `EMERGENCY_ADMIN_EMAIL` in `.env.prod`; the Resend sending-domain DNS (SPF/DKIM at the hello.co panel for `heltonmaia.com`); and the smoke test (`/emergency` → receive code → verify) as a post-deploy step. Note `BREAKGLASS_*` are gone.
 
-- [ ] **Step 4: Memory** — update `~/.claude/.../memory/project_prod_google_auth_deploy.md` (`neolabel-prod-google-auth-no-breakglass`): the break-glass is no longer a TODO — it's the email-code flow; note prod still needs the Resend key + domain + `EMERGENCY_ADMIN_EMAIL` set before it's live.
+- [ ] **Step 4: Memory** — update the local memory note `neolabel-prod-google-auth-no-breakglass`: the break-glass is no longer a TODO — it's the email-code flow; note prod still needs the Resend key + domain + `EMERGENCY_ADMIN_EMAIL` set before it's live.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add SPEC.md CLAUDE.md CLAUDE.local.md
+git add SPEC.md
 git commit -m "docs: emergency email-code access replaces the password break-glass"
 ```
 

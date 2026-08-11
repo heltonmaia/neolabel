@@ -261,7 +261,7 @@ point `ACCESS_ALLOWLIST_FILE` at a temp file per test (extend
 9. **Startup provisioning** — allowlist entries appear as assignable users;
    ids stay stable across a re-seed.
 
-Frontend has no test suite (per CLAUDE.md) → `npx tsc -b --noEmit` +
+Frontend has no test suite → `npx tsc -b --noEmit` +
 manual verification of the Google button and the break-glass toggle.
 
 ## 6. Docs to update (before/with code)
@@ -270,11 +270,13 @@ manual verification of the Google button and the break-glass toggle.
   `hashed_password` optional; `allowlist.json` replaces `seed_users.json`)
   and §4 Auth (`POST /auth/google`, allowlist authorization, break-glass,
   fail-closed behavior).
-- **CLAUDE.md** — Stack/auth pointers (`security.py` still mints JWT;
-  add allowlist + `services/allowlist.py` + `google_auth.py`), and a
-  footgun on the `VITE_GOOGLE_CLIENT_ID` build-time embed + break-glass.
-- **CLAUDE.local.md** — VPS: create `allowlist.json`, set the new env
-  vars, register the Google Cloud Client ID, break-glass-first rollout.
+- **Local contributor notes** (untracked) — Stack/auth pointers
+  (`security.py` still mints JWT; add allowlist + `services/allowlist.py` +
+  `google_auth.py`), and a footgun on the `VITE_GOOGLE_CLIENT_ID`
+  build-time embed + break-glass.
+- **Local deploy notes** (untracked) — VPS: create `allowlist.json`, set
+  the new env vars, register the Google Cloud Client ID, break-glass-first
+  rollout.
 - **README.md** — sign-in description (Google + emergency admin).
 
 ## 7. Rollout / ops (VPS)

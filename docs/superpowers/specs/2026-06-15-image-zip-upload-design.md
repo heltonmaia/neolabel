@@ -222,8 +222,8 @@ Backend tests run in-container via `pytest`; use existing fixtures
   video and COCO paths; note Phase 3 gains raw-image ingest.
 - **README.md** — "What you can do" step 1: mention "or upload a ZIP of
   images".
-- **CLAUDE.md** — `videos.py` pointer: note it also hosts the
-  image-ZIP importer (`POST /projects/{id}/import-images`).
+- **Local contributor notes** (untracked) — `videos.py` pointer: note it
+  also hosts the image-ZIP importer (`POST /projects/{id}/import-images`).
 
 ## 7. Out of scope (YAGNI)
 

@@ -15,11 +15,11 @@
 - **No client secret anywhere** — GIS ID-token flow uses only the public `GOOGLE_CLIENT_ID`.
 - **Preserve user `id`s** — never renumber existing users; `owner_id`/`assigned_to`/annotation files depend on them.
 - **Fail-closed authorization** — if the allowlist file is missing/unreadable, deny all Google logins (return `{}`); the break-glass admin (seeded from env) must still work.
-- **Commit messages:** scoped Conventional Commits (`feat(auth):`, `test(auth):`, `chore:`, `docs:`). **Do NOT add a `Co-Authored-By` trailer** (repo preference).
-- **`CLAUDE.md` and `CLAUDE.local.md` are git-ignored** — edit them locally but never `git add` them. `SPEC.md`, `README.md`, and everything under `docs/` and `backend/`/`frontend/` ARE tracked.
+- **Commit messages:** scoped Conventional Commits (`feat(auth):`, `test(auth):`, `chore:`, `docs:`).
+- **The local contributor and deploy notes are git-ignored** — edit them locally but never `git add` them. `SPEC.md`, `README.md`, and everything under `docs/` and `backend/`/`frontend/` ARE tracked.
 - **`allowlist.json`, `.env`, `seed_users.json` stay git-ignored.** Only `*.example.*` files are committed.
 - **Backend lint:** `ruff` with `line-length = 100`. Run `ruff format backend && ruff check backend` before each backend commit.
-- **Tests run inside the backend container** (per CLAUDE.md). Start the stack with the non-colliding port: `BACKEND_PORT=8010 docker compose up -d`, then `docker compose exec backend pytest ...`. (Native fallback: activate `/mnt/hd3/uv-common/uv-neo-label` and run `pytest` from `backend/`.)
+- **Tests run inside the backend container.** Start the stack with the non-colliding port: `BACKEND_PORT=8010 docker compose up -d`, then `docker compose exec backend pytest ...`. (Native fallback: activate `/mnt/hd3/uv-common/uv-neo-label` and run `pytest` from `backend/`.)
 - **Frontend has no test suite** — the only gate is `cd frontend && npx tsc -b --noEmit` (must be clean). Do not run `npm run lint` (broken in this checkout).
 - **Rebuilds:** changing `pyproject.toml` requires `docker compose up -d --build backend`; changing `frontend/package.json` requires `npm install` (for local typecheck) and a frontend container rebuild for runtime.
 
@@ -56,7 +56,7 @@
 - `.env.example`, `.env.prod.example` — new vars.
 - `allowlist.example.json` — new (committed); `seed_users.example.json` deleted.
 
-**Docs:** `SPEC.md`, `README.md` (tracked); `CLAUDE.md`, `CLAUDE.local.md` (local-only).
+**Docs:** `SPEC.md`, `README.md` (tracked); the contributor and deploy notes (local-only).
 
 ---
 
@@ -1415,7 +1415,7 @@ git commit -m "feat(auth): Google Sign-In button with break-glass admin toggle"
 
 **Files:**
 - Modify: `SPEC.md` (tracked), `README.md` (tracked)
-- Modify: `CLAUDE.md`, `CLAUDE.local.md` (git-ignored — edit, do NOT stage)
+- Modify: the local contributor and deploy notes (git-ignored — edit, do NOT stage)
 
 - [ ] **Step 1: Update `SPEC.md`**
 
@@ -1426,12 +1426,12 @@ git commit -m "feat(auth): Google Sign-In button with break-glass admin toggle"
 
 In the sign-in description, state that access is via Google Sign-In restricted to an email allowlist, with an emergency admin password account. Update any screenshot caption that references username/password entry.
 
-- [ ] **Step 3: Update `CLAUDE.md` (local only — do not stage)**
+- [ ] **Step 3: Update the local contributor notes (local only — do not stage)**
 
 - Stack/auth pointers: `security.py` still mints the session JWT; add `services/allowlist.py` (fresh-read, fail-closed) and `services/google_auth.py`; `POST /auth/google` lives in `api/v1/auth.py`; startup seeder is `main.py:seed_users()`.
 - Footgun: `VITE_GOOGLE_CLIENT_ID` is embedded at build time (must be present when the frontend image is built); the break-glass admin is the only password account.
 
-- [ ] **Step 4: Update `CLAUDE.local.md` (local only — do not stage)**
+- [ ] **Step 4: Update the local deploy notes (local only — do not stage)**
 
 - Files NOT in git: replace `seed_users.json` with `allowlist.json`; note `.env.prod` now also holds `GOOGLE_CLIENT_ID`, `VITE_GOOGLE_CLIENT_ID`, `BREAKGLASS_ADMIN_EMAIL`, `BREAKGLASS_ADMIN_PASSWORD`.
 - Add a "Google Cloud" note: OAuth 2.0 Web Client ID, authorized JS origins `https://neolabel.heltonmaia.com` + `http://localhost:5173`, consent screen External + `openid email profile`, Testing-mode gotcha, no client secret.
@@ -1444,7 +1444,7 @@ git add SPEC.md README.md
 git commit -m "docs: Google Sign-In + email allowlist auth model"
 ```
 
-(CLAUDE.md / CLAUDE.local.md are git-ignored — their edits stay local and are intentionally not committed.)
+(The contributor and deploy notes are git-ignored — their edits stay local and are intentionally not committed.)
 
 ---
 

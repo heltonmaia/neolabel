@@ -192,9 +192,10 @@ Frontend: typecheck only (`npx tsc -b --noEmit`; no frontend test suite).
 
 - **SPEC.md** (product source of truth) — replace the password break-glass section with the
   emergency email-code flow. **Update SPEC.md first**, per repo convention.
-- **CLAUDE.md** — auth pointers + footguns (new endpoints, `services/email.py`, removed
-  `/auth/login`).
-- **CLAUDE.local.md** — VPS: Resend key, `EMAIL_FROM`, sending-domain DNS, `EMERGENCY_ADMIN_EMAIL`.
+- **Local contributor notes** (untracked) — auth pointers + footguns (new endpoints,
+  `services/email.py`, removed `/auth/login`).
+- **Local deploy notes** (untracked) — VPS: Resend key, `EMAIL_FROM`, sending-domain DNS,
+  `EMERGENCY_ADMIN_EMAIL`.
 - Memory: update `neolabel-prod-google-auth-no-breakglass` (the break-glass TODO is now this).
 
 ## Open defaults (chosen; easy to change in the plan)
